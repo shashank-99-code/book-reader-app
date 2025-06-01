@@ -3,10 +3,13 @@
 import type React from "react"
 import { useEffect, useRef, useState, useCallback } from "react"
 import ePub, { type Book, type Rendition, type NavItem } from "epubjs"
+import { useReader } from '@/contexts/ReaderContext';
+import { getBookById } from '@/lib/services/bookService';
 
 interface EPUBReaderProps {
   fileUrl: string
   bookTitle?: string
+  bookId: string;
 }
 
 interface ReadingSettings {
@@ -22,7 +25,11 @@ interface ReadingSettings {
   }
 }
 
-const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) => {
+interface ProgressUpdate {
+  progress_percentage: number;
+}
+
+const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bookId }) => {
   const viewerRef = useRef<HTMLDivElement>(null)
   const [book, setBook] = useState<Book | null>(null)
   const [rendition, setRendition] = useState<Rendition | null>(null)
@@ -42,6 +49,8 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
   const [progress, setProgress] = useState(0)
   const [chapters, setChapters] = useState<NavItem[]>([])
   const [currentPage, setCurrentPage] = useState("")
+  const [currentPageNumber, setCurrentPageNumber] = useState<number>(1);
+  const [computedPage, setComputedPage] = useState<string | number>(1);
 
   // Reading Settings
   const [settings, setSettings] = useState<ReadingSettings>({
@@ -63,13 +72,42 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
   const [isSearching, setIsSearching] = useState(false)
   const [currentSearchIndex, setCurrentSearchIndex] = useState(-1)
 
-  // Auto-hide controls after 3 seconds - DISABLED for now
-  // useEffect(() => {
-  //   if (showControls) {
-  //     const timer = setTimeout(() => setShowControls(false), 3000);
-  //     return () => clearTimeout(timer);
-  //   }
-  // }, [showControls]);
+  const { updateProgress, progress: contextProgress } = useReader();
+
+  const [dbBook, setDbBook] = useState<any>(null);
+  const [dbBookLoading, setDbBookLoading] = useState(true);
+  const [dbBookError, setDbBookError] = useState<string | null>(null);
+  const dbBookRef = useRef<any>(null);
+  const fetchedBookIdRef = useRef<string | null>(null);
+  const currentLocationRef = useRef<any>(null);
+  const updateProgressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Debounced updateProgress to prevent rapid calls
+  const debouncedUpdateProgress = useCallback((pageNum: number, totalPages: number) => {
+    if (updateProgressTimeoutRef.current) {
+      clearTimeout(updateProgressTimeoutRef.current);
+    }
+    updateProgressTimeoutRef.current = setTimeout(() => {
+      console.log('Debounced updateProgress called with:', pageNum, totalPages);
+      updateProgress(pageNum, totalPages);
+    }, 500); // 500ms debounce
+  }, [updateProgress]);
+
+  // Memoize the progress update handler
+  const handleProgressUpdate = useCallback(async (page: number, totalPages: number) => {
+    if (!book) return;
+    try {
+      setIsLoading(true);
+      setError(null);
+      await debouncedUpdateProgress(page, totalPages);
+      setCurrentPage(page.toString());
+      setProgress(page);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update progress');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [book, debouncedUpdateProgress]);
 
   // Auto-hide hint after 5 seconds
   useEffect(() => {
@@ -86,457 +124,399 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
     }
   }
 
-  // Initialize book
+  // Initialize book (no more page count calculations)
   useEffect(() => {
-    if (!fileUrl) return
+    if (!fileUrl) return;
 
-    setIsLoading(true)
-    setError(null)
-    const epubBook = ePub(fileUrl)
-    setBook(epubBook)
+    setIsLoading(true);
+    setError(null);
+
+    const loadBook = async () => {
+      try {
+        const epubBook = ePub(fileUrl);
+        await epubBook.ready;
+        setBook(epubBook);
+
+        // Generate locations for progress calculation
+        await epubBook.locations.generate(1000); // 1000 chars per location
 
     // Load navigation/chapters
-    epubBook.loaded.navigation.then((nav: any) => {
-      setChapters(nav.toc || [])
-    })
+        const nav = await epubBook.loaded.navigation;
+        setChapters(nav.toc || []);
+      } catch (err) {
+        console.error("Error loading EPUB:", err);
+        setError("Failed to load EPUB file.");
+        setIsLoading(false);
+      }
+    };
+
+    loadBook();
 
     return () => {
-      if (epubBook) {
-        epubBook.destroy()
+      if (book) {
+        book.destroy();
       }
       if (rendition) {
-        rendition.destroy()
+        rendition.destroy();
       }
-    }
-  }, [fileUrl])
+    };
+  }, [fileUrl]);
 
-  // Setup rendition
+  // Compute the displayed page number based on progress and total_pages
   useEffect(() => {
-    if (book && viewerRef.current) {
-      // Map pageLayout setting to epub.js spread option
-      const getSpreadOption = (layout: string) => {
-        switch (layout) {
-          case "single":
-            return "none"
-          case "double":
-            return "always"
-          case "auto":
-          default:
-            return "auto"
-        }
-      }
+    let newPage: string | number = 1;
+    // Log values at the start of the useEffect
+    console.log('Debug (useEffect for computedPage entry):', {
+      progress,
+      dbBookTotalPages: dbBook?.total_pages,
+      dbBookExists: !!dbBook
+    });
 
-      // Clear the viewer first
-      viewerRef.current.innerHTML = ""
+    if (dbBook && dbBook.total_pages && typeof progress === 'number' && progress > 0) {
+      console.log('Debug page calculation (inside if):', {
+        progress,
+        totalPages: dbBook.total_pages,
+        calculation: (progress / 100) * dbBook.total_pages,
+        rounded: Math.round((progress / 100) * dbBook.total_pages)
+      });
+      const pageNum = Math.max(1, Math.round((progress / 100) * dbBook.total_pages));
+      newPage = pageNum;
+    }
+    if (computedPage !== newPage) {
+      console.log('Setting new page:', newPage, 'Old computedPage:', computedPage);
+      setComputedPage(newPage);
+    }
+  }, [progress, dbBook?.total_pages]);
 
-      const spreadOption = getSpreadOption(settings.pageLayout)
-      console.log("Creating rendition with layout:", settings.pageLayout, "spread:", spreadOption)
+  // Apply bionic reading to text
+  const applyBionicReading = useCallback((enabled: boolean, intensity: string | number) => {
+    if (!viewerRef.current) return
 
-      const newRendition = book.renderTo(viewerRef.current, {
-        width: "100%",
-        height: "100%",
-        flow: "paginated",
-        spread: spreadOption,
-        minSpreadWidth: 800, // Minimum width for two-page spread
-      })
+    const iframe = viewerRef.current.querySelector("iframe")
+    if (!iframe || !iframe.contentDocument) return
 
-      // Apply reading settings
-      applyBionicReading(settings.bionicReading.enabled, settings.bionicReading.intensity)
-      applySettings(newRendition, settings)
-
-      // For two-page layout, we might need to force it after creation
-      if (settings.pageLayout === "double") {
-        console.log("Forcing two-page layout")
-        try {
-          newRendition.spread("always")
-        } catch (err) {
-          console.warn("Could not force two-page layout:", err)
-        }
-      }
-
-      newRendition
-        .display(currentLocation?.start?.cfi || undefined)
-        .then(() => {
-          setIsLoading(false)
-          setIsChangingLayout(false)
-          
-          console.log("Rendition displayed successfully with spread:", spreadOption)
-
-          // Force apply themes after display
-          applySettings(newRendition, settings)
-          
-          // Additional CSS injection to ensure text is visible
-          setTimeout(() => {
-            try {
-              const iframe = viewerRef.current?.querySelector("iframe")
-              if (iframe && iframe.contentDocument) {
                 const doc = iframe.contentDocument
-                
-                // Create or update style element for text visibility
-                let styleEl = doc.getElementById('force-text-visibility')
-                if (!styleEl) {
-                  styleEl = doc.createElement('style')
-                  styleEl.id = 'force-text-visibility'
-                  doc.head.appendChild(styleEl)
+    const textNodes: Text[] = []
+
+    // Find all text nodes
+    const walk = document.createTreeWalker(
+      doc.body,
+      NodeFilter.SHOW_TEXT,
+      null
+    )
+
+    let node: Text | null
+    while ((node = walk.nextNode() as Text)) {
+      if (node.textContent && node.textContent.trim().length > 0) {
+        textNodes.push(node)
                 }
-                
-                const textColor = settings.theme === "dark" ? "#e0e0e0" : settings.theme === "sepia" ? "#5c4b37" : "#000000"
-                const bgColor = settings.theme === "dark" ? "#1a1a1a" : settings.theme === "sepia" ? "#f4f1ea" : "#ffffff"
-                
-                styleEl.textContent = `
-                  * {
-                    color: ${textColor} !important;
-                  }
-                  body {
-                    background-color: ${bgColor} !important;
-                    color: ${textColor} !important;
-                  }
-                  p, div, span, a, li, td, th {
-                    color: ${textColor} !important;
-                  }
-                  h1, h2, h3, h4, h5, h6 {
-                    color: ${textColor} !important;
-                  }
-                `
-                
-                console.log("Injected CSS for text visibility with color:", textColor)
-              }
-            } catch (err) {
-              console.warn("Could not inject CSS for text visibility:", err)
-            }
-          }, 500)
-
-          // Generate locations for progress tracking after book is displayed
-          if (book.locations && !book.locations.length()) {
-            book.locations.generate(1024).catch((err) => {
-              console.warn("Could not generate locations for progress tracking:", err)
-            })
-          }
-
-          // Ensure the iframe content doesn't block our click events
-          const iframe = viewerRef.current?.querySelector("iframe")
-          if (iframe) {
-            iframe.style.pointerEvents = "none"
-            console.log("Set iframe pointer-events to none")
-          }
-
-          // Additional check for two-page layout
-          if (settings.pageLayout === "double") {
-            setTimeout(() => {
-              try {
-                newRendition.spread("always")
-                console.log("Applied two-page layout after display")
-              } catch (err) {
-                console.warn("Could not apply two-page layout after display:", err)
-              }
-            }, 500)
-          }
-        })
-        .catch((err) => {
-          console.error("Error displaying EPUB:", err)
-          setError("Failed to display EPUB file.")
-          setIsLoading(false)
-          setIsChangingLayout(false)
-        })
-
-      // Track reading progress with better error handling
-      newRendition.on("locationChanged", (location: any) => {
-        setCurrentLocation(location)
-        console.log("Location changed:", location) // Debug log
-
-        // Update page indicator for debugging
-        if (location?.start?.cfi) {
-          setCurrentPage(location.start.cfi.substring(0, 20) + "...")
-        }
-
-        try {
-          if (book.locations && book.locations.length() > 0 && location?.start?.cfi) {
-            const progressPercent = book.locations.percentageFromCfi(location.start.cfi)
-            if (typeof progressPercent === "number" && !isNaN(progressPercent)) {
-              setProgress(progressPercent * 100)
-            }
-          }
-        } catch (err) {
-          console.warn("Error calculating reading progress:", err)
-          // Don't show error to user, just log it
-        }
-      })
-
-      // Handle rendition errors
-      newRendition.on("error", (err: any) => {
-        console.error("Rendition error:", err)
-      })
-
-      setRendition(newRendition)
-
-      // Cleanup function
-      return () => {
-        if (newRendition) {
-          newRendition.destroy()
-        }
-      }
     }
-  }, [book, settings.pageLayout]) // Add pageLayout back to dependencies
 
-  // Show loading state when layout changes
-  useEffect(() => {
-    if (rendition) {
-      setIsChangingLayout(true)
-      // The loading state will be cleared in the rendition display promise
-    }
-  }, [settings.pageLayout])
+    // Convert intensity to number if it's a string
+    const intensityValue = typeof intensity === 'string' 
+      ? intensity === 'low' ? 30 
+      : intensity === 'medium' ? 50 
+      : intensity === 'high' ? 70 
+      : 50 
+      : intensity
 
-  // Bionic Reading functionality
-  const applyBionicReading = useCallback((enabled: boolean, intensity: "low" | "medium" | "high") => {
-    if (!enabled || !rendition) return
+    // Apply bionic reading
+    textNodes.forEach((textNode) => {
+      const text = textNode.textContent || ""
+      if (text.trim().length === 0) return
 
-    setTimeout(() => {
-      try {
-        const iframe = viewerRef.current?.querySelector("iframe")
-        if (iframe && iframe.contentDocument) {
-          const doc = iframe.contentDocument
-          const textElements = doc.querySelectorAll('p, div, span, h1, h2, h3, h4, h5, h6')
-          
-          // Define how much of each word to bold based on intensity
-          const getFixationLength = (wordLength: number): number => {
-            const ratios = {
-              low: 0.3,    // 30% of word
-              medium: 0.5, // 50% of word  
-              high: 0.7    // 70% of word
-            }
-            
-            const ratio = ratios[intensity]
-            
-            if (wordLength <= 2) return 1
-            if (wordLength <= 4) return Math.ceil(wordLength * ratio)
-            return Math.ceil(wordLength * ratio)
-          }
-
-          textElements.forEach((element: Element) => {
-            const originalText = element.textContent || ""
-            if (originalText.trim()) {
-              const bionicText = originalText.replace(/\b\w+\b/g, (word: string) => {
-                if (word.length <= 1) return word
-                
-                const fixationLength = getFixationLength(word.length)
-                const boldPart = word.substring(0, fixationLength)
-                const normalPart = word.substring(fixationLength)
-                
-                return `<strong>${boldPart}</strong>${normalPart}`
-              })
-              element.innerHTML = bionicText
-            }
-          })
-          
-          console.log("Applied bionic reading with intensity:", intensity)
-        }
-      } catch (err) {
-        console.warn("Could not apply bionic reading:", err)
+      // Check if the parent already contains a bionic reading processed span
+      // to prevent reprocessing. This is a simple check and might need refinement.
+      if (textNode.parentElement && textNode.parentElement.dataset.bionicApplied === 'true') {
+        return;
       }
-    }, 1000) // Apply after content is loaded
-  }, [rendition])
+
+      const words = text.split(/(\s+)/)
+      const bionicText = words.map((word) => {
+        if (word.trim().length === 0) return word
+
+        const halfLength = Math.ceil(word.length * (intensityValue / 100))
+        return `<strong>${word.substring(0, halfLength)}</strong>${word.substring(halfLength)}`
+      }).join("")
+
+      const span = doc.createElement("span")
+      span.innerHTML = bionicText
+      span.dataset.bionicApplied = 'true'; // Mark as processed
+      textNode.parentNode?.replaceChild(span, textNode)
+    })
+  }, [])
 
   // Apply reading settings to rendition
-  const applySettings = useCallback((rendition: Rendition, settings: ReadingSettings) => {
+  const applySettings = useCallback((renditionToUpdate: Rendition, currentSettings: ReadingSettings) => {
+    if (!renditionToUpdate) return;
     try {
-      // Apply theme with more comprehensive styling
-      const themes = {
-        light: { 
-          body: { 
-            background: "#ffffff !important", 
-            color: "#000000 !important",
-            "line-height": `${settings.lineHeight / 100} !important`,
-            "text-align": `${settings.textAlign} !important`
-          },
-          p: { 
-            color: "#000000 !important",
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important`
-          },
-          div: { 
-            color: "#000000 !important",
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important`
-          },
-          span: { color: "#000000 !important" },
-          h1: { color: "#000000 !important" },
-          h2: { color: "#000000 !important" },
-          h3: { color: "#000000 !important" },
-          h4: { color: "#000000 !important" },
-          h5: { color: "#000000 !important" },
-          h6: { color: "#000000 !important" },
-          // Bionic reading styles
-          strong: { 
-            "font-weight": "bold !important",
-            color: "#000000 !important"
-          }
-        },
-        dark: { 
-          body: { 
-            background: "#1a1a1a !important", 
-            color: "#e0e0e0 !important",
-            "line-height": `${settings.lineHeight / 100} !important`,
-            "text-align": `${settings.textAlign} !important`
-          },
-          p: { 
-            color: "#e0e0e0 !important",
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important`
-          },
-          div: { 
-            color: "#e0e0e0 !important",
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important`
-          },
-          span: { color: "#e0e0e0 !important" },
-          h1: { color: "#ffffff !important" },
-          h2: { color: "#ffffff !important" },
-          h3: { color: "#ffffff !important" },
-          h4: { color: "#ffffff !important" },
-          h5: { color: "#ffffff !important" },
-          h6: { color: "#ffffff !important" },
-          // Bionic reading styles
-          strong: { 
-            "font-weight": "bold !important",
-            color: "#ffffff !important"
-          }
-        },
-        sepia: { 
-          body: { 
-            background: "#f4f1ea !important", 
-            color: "#5c4b37 !important",
-            "line-height": `${settings.lineHeight / 100} !important`,
-            "text-align": `${settings.textAlign} !important`
-          },
-          p: { 
-            color: "#5c4b37 !important",
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important`
-          },
-          div: { 
-            color: "#5c4b37 !important",
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important`
-          },
-          span: { color: "#5c4b37 !important" },
-          h1: { color: "#4a3f2a !important" },
-          h2: { color: "#4a3f2a !important" },
-          h3: { color: "#4a3f2a !important" },
-          h4: { color: "#4a3f2a !important" },
-          h5: { color: "#4a3f2a !important" },
-          h6: { color: "#4a3f2a !important" },
-          // Bionic reading styles
-          strong: { 
-            "font-weight": "bold !important",
-            color: "#4a3f2a !important"
-          }
-        },
-      }
-
-      // Register themes
-      rendition.themes.register("light", themes.light)
-      rendition.themes.register("dark", themes.dark)
-      rendition.themes.register("sepia", themes.sepia)
-      
-      // Select the current theme
-      rendition.themes.select(settings.theme)
-      
-      // Apply font settings
-      rendition.themes.fontSize(`${settings.fontSize}%`)
-      rendition.themes.font(settings.fontFamily)
+      renditionToUpdate.themes.select(currentSettings.theme)
+      renditionToUpdate.themes.fontSize(`${currentSettings.fontSize}%`)
+      renditionToUpdate.themes.font(currentSettings.fontFamily)
       
       // Apply bionic reading if enabled
-      applyBionicReading(settings.bionicReading.enabled, settings.bionicReading.intensity)
+      if (currentSettings.bionicReading.enabled) {
+        applyBionicReading(true, currentSettings.bionicReading.intensity)
+      } else {
+        // Potentially add logic to remove bionic reading if needed, 
+        // though this might be complex and require reverting DOM changes.
+        // For now, enabling simply applies it.
+      }
       
-      // Force theme application with a slight delay
-      setTimeout(() => {
-        rendition.themes.select(settings.theme)
-        console.log(`Applied theme: ${settings.theme}`)
-      }, 100)
+      console.log(`Applied theme: ${currentSettings.theme}, Font: ${currentSettings.fontFamily}, Size: ${currentSettings.fontSize}%`)
       
     } catch (error) {
       console.error("Error applying settings:", error)
     }
   }, [applyBionicReading])
 
-  // Update settings
+  // Setup rendition ONLY when fileUrl, book, or settings.pageLayout changes
   useEffect(() => {
-    if (rendition) {
-      applySettings(rendition, settings)
-      
-      // Also re-inject CSS for text visibility when settings change
-      setTimeout(() => {
+    if (!book || !viewerRef.current) return;
+
+    let cancelled = false;
+
+    const setup = async () => {
+      // Wait for book to be fully loaded
+      await book.ready;
+      if (cancelled) return;
+
+      // Ensure locations are generated before restoration
+      console.log('Ensuring book locations are generated for progress restoration...');
+      await book.locations.generate(1000);
+
+      // Clean up previous rendition
+      if (rendition) {
+        rendition.destroy();
+        setRendition(null);
+      }
+
+      const getSpreadOption = (layout: string) => {
+        switch (layout) {
+          case "single": return "none";
+          case "double": return "always";
+          case "auto": default: return "auto";
+        }
+      };
+
+      if (!viewerRef.current) return;
+      viewerRef.current.innerHTML = "";
+      const spreadOption = getSpreadOption(settings.pageLayout);
+      const newRendition = book.renderTo(viewerRef.current, {
+        width: "100%",
+        height: "100%",
+        flow: "paginated",
+        spread: spreadOption,
+        minSpreadWidth: 800,
+      });
+      setRendition(newRendition);
+
+      // Register themes ONCE
+      const themes = {
+        light: { body: { background: "#ffffff !important", color: "#000000 !important", "line-height": `${settings.lineHeight / 100} !important`, "text-align": `${settings.textAlign} !important` }, p: { color: "#000000 !important", "text-align": `${settings.textAlign} !important`, "line-height": `${settings.lineHeight / 100} !important` }, div: { color: "#000000 !important", "text-align": `${settings.textAlign} !important`, "line-height": `${settings.lineHeight / 100} !important` }, span: { color: "#000000 !important" }, h1: { color: "#000000 !important" }, h2: { color: "#000000 !important" }, h3: { color: "#000000 !important" }, h4: { color: "#000000 !important" }, h5: { color: "#000000 !important" }, h6: { color: "#000000 !important" }, strong: { "font-weight": "bold !important", color: "#000000 !important"} },
+        dark: { body: { background: "#1a1a1a !important", color: "#e0e0e0 !important", "line-height": `${settings.lineHeight / 100} !important`, "text-align": `${settings.textAlign} !important` }, p: { color: "#e0e0e0 !important", "text-align": `${settings.textAlign} !important`, "line-height": `${settings.lineHeight / 100} !important` }, div: { color: "#e0e0e0 !important", "text-align": `${settings.textAlign} !important`, "line-height": `${settings.lineHeight / 100} !important` }, span: { color: "#e0e0e0 !important" }, h1: { color: "#ffffff !important" }, h2: { color: "#ffffff !important" }, h3: { color: "#ffffff !important" }, h4: { color: "#ffffff !important" }, h5: { color: "#ffffff !important" }, h6: { color: "#ffffff !important" }, strong: { "font-weight": "bold !important", color: "#ffffff !important"} },
+        sepia: { body: { background: "#f4f1ea !important", color: "#5c4b37 !important", "line-height": `${settings.lineHeight / 100} !important`, "text-align": `${settings.textAlign} !important` }, p: { color: "#5c4b37 !important", "text-align": `${settings.textAlign} !important`, "line-height": `${settings.lineHeight / 100} !important` }, div: { color: "#5c4b37 !important", "text-align": `${settings.textAlign} !important`, "line-height": `${settings.lineHeight / 100} !important` }, span: { color: "#5c4b37 !important" }, h1: { color: "#4a3f2a !important" }, h2: { color: "#4a3f2a !important" }, h3: { color: "#4a3f2a !important" }, h4: { color: "#4a3f2a !important" }, h5: { color: "#4a3f2a !important" }, h6: { color: "#4a3f2a !important" }, strong: { "font-weight": "bold !important", color: "#4a3f2a !important"} },
+      };
+      newRendition.themes.register("light", themes.light);
+      newRendition.themes.register("dark", themes.dark);
+      newRendition.themes.register("sepia", themes.sepia);
+      // Apply initial settings
+      applySettings(newRendition, settings);
+
+      // Restore previous location if available, otherwise display from beginning
+      if (currentLocationRef.current && currentLocationRef.current.start) {
+        console.log('Restoring previous location from ref:', currentLocationRef.current);
+        newRendition.display(currentLocationRef.current.start.cfi);
+      } else if (contextProgress > 0 && book.locations) {
+        // Restore based on saved progress from ReaderContext
+        const progressDecimal = contextProgress / 100;
+        console.log('Restoring position from context progress:', contextProgress, '% =', progressDecimal);
         try {
-          const iframe = viewerRef.current?.querySelector("iframe")
-          if (iframe && iframe.contentDocument) {
-            const doc = iframe.contentDocument
-            
-            let styleEl = doc.getElementById('force-text-visibility')
-            if (!styleEl) {
-              styleEl = doc.createElement('style')
-              styleEl.id = 'force-text-visibility'
-              doc.head.appendChild(styleEl)
-            }
-            
-            const textColor = settings.theme === "dark" ? "#e0e0e0" : settings.theme === "sepia" ? "#5c4b37" : "#000000"
-            const bgColor = settings.theme === "dark" ? "#1a1a1a" : settings.theme === "sepia" ? "#f4f1ea" : "#ffffff"
-            
-            styleEl.textContent = `
-              * {
-                color: ${textColor} !important;
-              }
-              body {
-                background-color: ${bgColor} !important;
-                color: ${textColor} !important;
-              }
-              p, div, span, a, li, td, th {
-                color: ${textColor} !important;
-              }
-              h1, h2, h3, h4, h5, h6 {
-                color: ${textColor} !important;
-              }
-            `
-            
-            console.log("Re-injected CSS for theme change with color:", textColor)
+          const cfi = book.locations.cfiFromPercentage(progressDecimal);
+          if (cfi) {
+            console.log('Restoring to CFI:', cfi);
+            newRendition.display(cfi);
+          } else {
+            newRendition.display();
           }
         } catch (err) {
-          console.warn("Could not re-inject CSS for theme change:", err)
+          console.warn('Failed to restore from progress:', err);
+          newRendition.display();
         }
-      }, 200)
+      } else {
+        newRendition.display();
+      }
+      setIsLoading(false);
+
+      // Register locationChanged handler only here
+      const handleLocationChanged = (location: any) => {
+        setCurrentLocation(location);
+        setCurrentPageNumber(typeof location.index === 'number' ? location.index + 1 : 1);
+        
+        // Store current location in ref for persistence
+        currentLocationRef.current = location;
+
+        let currentProgress = 0;
+        if (location && typeof location.percentage === 'number') {
+          currentProgress = location.percentage * 100;
+        } else if (book && book.locations && location?.start?.cfi) {
+          // Fallback to recalculating if location.percentage is not available
+          const percent = book.locations.percentageFromCfi(location.start.cfi);
+          currentProgress = typeof percent === 'number' ? percent * 100 : 0;
+        }
+        setProgress(currentProgress);
+        console.log('Location changed (handler updated):', location, 'Set progress to:', currentProgress);
+
+        // Use dbBookRef to get the current dbBook without causing state updates
+        const currentDbBook = dbBookRef.current;
+        if (currentDbBook && currentDbBook.total_pages) {
+          const pageNum = Math.max(1, Math.round((currentProgress / 100) * currentDbBook.total_pages));
+          console.log('Calling updateProgress with:', pageNum, currentDbBook.total_pages);
+          debouncedUpdateProgress(pageNum, currentDbBook.total_pages);
+        } else {
+          console.log('Skipping updateProgress: dbBook or total_pages not available', currentDbBook);
+        }
+      };
+      newRendition.on('locationChanged', handleLocationChanged);
+      // Clean up handler on destroy
+      newRendition.on('destroy', () => {
+        newRendition.off('locationChanged', handleLocationChanged);
+      });
+    };
+
+    setup();
+
+    return () => {
+      cancelled = true;
+      if (rendition) rendition.destroy();
+    };
+  }, [book, fileUrl, settings.pageLayout]);
+
+  // Restore position when contextProgress becomes available (e.g., loaded from Supabase)
+  useEffect(() => {
+    if (rendition && book && contextProgress > 0 && !currentLocationRef.current) {
+      console.log('Restoring position from context progress after load:', contextProgress, '%');
+      try {
+        const progressDecimal = contextProgress / 100;
+        const cfi = book.locations.cfiFromPercentage(progressDecimal);
+        if (cfi) {
+          console.log('Restoring to CFI from context:', cfi);
+          rendition.display(cfi);
+        }
+      } catch (err) {
+        console.warn('Failed to restore from context progress:', err);
+      }
     }
-  }, [settings, rendition, applySettings])
+  }, [rendition, book, contextProgress]);
+
+  // Apply settings to existing rendition when settings (except pageLayout) change
+  useEffect(() => {
+    if (!rendition) return;
+    applySettings(rendition, settings);
+  // Exclude settings.pageLayout from this dependency to avoid recreation
+  }, [rendition, settings.theme, settings.fontSize, settings.fontFamily, settings.lineHeight, settings.textAlign, settings.bionicReading]);
 
   const nextPage = () => {
-    if (rendition) {
-      console.log("Next page called") // Debug log
+    if (!rendition || !rendition.next) {
+      console.log("Rendition not ready for next page");
+      return;
+    }
+
+    console.log("Next page called");
       rendition
         .next()
         .then(() => {
-          console.log("Next page successful")
+        console.log("Next page successful");
         })
         .catch((err) => {
-          console.error("Error going to next page:", err)
-        })
-    } else {
-      console.log("Rendition not ready for next page")
-    }
-  }
+        console.error("Error going to next page:", err);
+      });
+  };
 
   const prevPage = () => {
-    if (rendition) {
-      console.log("Previous page called") // Debug log
+    if (!rendition || !rendition.prev) {
+      console.log("Rendition not ready for previous page");
+      return;
+    }
+
+    console.log("Previous page called");
       rendition
         .prev()
         .then(() => {
-          console.log("Previous page successful")
+        console.log("Previous page successful");
         })
         .catch((err) => {
-          console.error("Error going to previous page:", err)
-        })
-    } else {
-      console.log("Rendition not ready for previous page")
+        console.error("Error going to previous page:", err);
+      });
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (!rendition) {
+      console.log("Rendition not ready for keyboard navigation");
+      return;
     }
-  }
+
+    console.log("Key pressed:", e.key);
+    if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      prevPage();
+    } else if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") {
+      e.preventDefault();
+      nextPage();
+    } else if (e.key === "Escape") {
+      setShowChapters(false);
+      setShowSettings(false);
+    }
+  };
+
+  // Add keyboard navigation
+  useEffect(() => {
+    if (!rendition) return;
+    
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [rendition]);
+
+  // Add a fallback click listener to the entire reading container
+  useEffect(() => {
+    if (!rendition) return;
+
+    const handleContainerClick = (e: MouseEvent) => {
+      if (viewerRef.current && viewerRef.current.contains(e.target as Node)) {
+        console.log("Container click detected");
+        const rect = viewerRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const width = rect.width;
+
+        if (x < width * 0.4) {
+          prevPage();
+          console.log("Previous page clicked (fallback)");
+        } else if (x > width * 0.6) {
+          nextPage();
+          console.log("Next page clicked (fallback)");
+        }
+      }
+    };
+
+    document.addEventListener("click", handleContainerClick);
+    return () => document.removeEventListener("click", handleContainerClick);
+  }, [rendition]);
+
+  // Close settings dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Element
+      if (showSettings && !target.closest('.settings-dropdown')) {
+        setShowSettings(false)
+      }
+      if (showSearch && !target.closest('.search-panel')) {
+        setShowSearch(false)
+      }
+    }
+
+    document.addEventListener("click", handleClickOutside)
+    return () => document.removeEventListener("click", handleClickOutside)
+  }, [showSettings, showSearch])
 
   const goToChapter = (href: string) => {
     if (rendition) {
@@ -727,66 +707,57 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
     }
   }
 
-  const handleKeyDown = (e: KeyboardEvent) => {
-    console.log("Key pressed:", e.key) // Debug log
-    if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-      e.preventDefault()
-      prevPage()
-    } else if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") {
-      e.preventDefault()
-      nextPage()
-    } else if (e.key === "Escape") {
-      // Close panels but keep main controls visible
-      setShowChapters(false)
-      setShowSettings(false)
+  // Fetch the book record from Supabase for total_pages
+  useEffect(() => {
+    console.log('EPUBReader useEffect for dbBook running');
+    let mounted = true;
+    
+    // Skip if we've already fetched this bookId
+    if (fetchedBookIdRef.current === bookId && dbBookRef.current) {
+      console.log('Skipping fetch - already have data for bookId:', bookId);
+      return;
     }
-  }
-
-  // Add keyboard navigation
-  useEffect(() => {
-    document.addEventListener("keydown", handleKeyDown)
-    return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [rendition, showControls]) // Add showControls to dependencies
-
-  // Add a fallback click listener to the entire reading container
-  useEffect(() => {
-    const handleContainerClick = (e: MouseEvent) => {
-      if (viewerRef.current && viewerRef.current.contains(e.target as Node)) {
-        console.log("Container click detected")
-        // Convert to React event-like object
-        const rect = viewerRef.current.getBoundingClientRect()
-        const x = e.clientX - rect.left
-        const width = rect.width
-
-        if (x < width * 0.4) {
-          prevPage()
-          console.log("Previous page clicked (fallback)")
-        } else if (x > width * 0.6) {
-          nextPage()
-          console.log("Next page clicked (fallback)")
+    
+    async function fetchDbBook() {
+      console.log('EPUBReader fetchDbBook called');
+      setDbBookLoading(true);
+      setDbBookError(null);
+      console.log('EPUBReader bookId prop:', bookId);
+      if (!bookId) {
+        setDbBookError('Book ID not provided');
+        setDbBookLoading(false);
+        return;
+      }
+      try {
+        const book = await getBookById(bookId);
+        console.log('Fetched book from Supabase:', book);
+        if (mounted) {
+          setDbBook(book);
+          dbBookRef.current = book; // Keep ref in sync
+          fetchedBookIdRef.current = bookId; // Mark as fetched
         }
+      } catch (err) {
+        console.log('Error fetching book from Supabase:', err);
+        if (mounted) setDbBookError('Failed to fetch book record');
+      } finally {
+        if (mounted) setDbBookLoading(false);
       }
     }
+    fetchDbBook();
+    return () => { mounted = false; };
+  }, [bookId]);
 
-    document.addEventListener("click", handleContainerClick)
-    return () => document.removeEventListener("click", handleContainerClick)
-  }, [rendition])
-
-  // Close settings dropdown when clicking outside
+  // Reset dbBookRef when bookId changes
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Element
-      if (showSettings && !target.closest('.settings-dropdown')) {
-        setShowSettings(false)
-      }
-      if (showSearch && !target.closest('.search-panel')) {
-        setShowSearch(false)
-      }
+    dbBookRef.current = null;
+    fetchedBookIdRef.current = null;
+    currentLocationRef.current = null;
+    // Clear any pending updateProgress calls
+    if (updateProgressTimeoutRef.current) {
+      clearTimeout(updateProgressTimeoutRef.current);
+      updateProgressTimeoutRef.current = null;
     }
-
-    document.addEventListener("click", handleClickOutside)
-    return () => document.removeEventListener("click", handleClickOutside)
-  }, [showSettings, showSearch])
+  }, [bookId]);
 
   if (error) {
     return (
@@ -969,10 +940,20 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
                   />
                 </div>
                 <div className="flex justify-between items-center mt-3">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
+                    {dbBookLoading ? (
+                      <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Calculating pages…</span>
+                    ) : dbBook && dbBook.total_pages ? (
+                      <>
                   <span className="text-sm font-medium text-gray-600 dark:text-gray-400">{Math.round(progress)}%</span>
                   <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                    {currentLocation ? `${Math.round(progress)}` : "0"} - {Math.round(progress + 1)} / 171
+                          Page {computedPage} / {dbBook.total_pages}
                   </span>
+                      </>
+                    ) : (
+                      <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Page count unavailable</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

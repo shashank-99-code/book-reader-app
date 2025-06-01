@@ -1,69 +1,803 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
-console.log('PDF.js workerSrc:', pdfjs.GlobalWorkerOptions.workerSrc);
+import { useReader } from '@/contexts/ReaderContext';
+import { getBookById } from '@/lib/services/bookService';
+
+// Configure PDF.js worker - ensure version compatibility with cache busting
+if (typeof window !== 'undefined') {
+  // Try CDN version first for exact version match
+  pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs`;
+  
+  // Fallback to local file if CDN fails (copied during postinstall)
+  pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs?v=4.8.69';
+}
+
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
-import { ReaderControls } from './ReaderControls';
 
-// Set workerSrc for PDF.js
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
+interface PDFReaderProps {
+  fileUrl: string;
+  bookTitle?: string;
+  bookId: string;
+}
 
-export function PDFReader({ fileUrl }: { fileUrl: string }) {
+interface ReadingSettings {
+  fontSize: number;
+  theme: "light" | "dark" | "sepia";
+  pageLayout: "single" | "double";
+  zoom: number | "fit-length";
+}
+
+export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
-  const [zoom, setZoom] = useState(1);
-  const [theme, setTheme] = useState<'light' | 'dark' | 'sepia'>('light');
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(800);
+  const [containerHeight, setContainerHeight] = useState<number>(600);
+  
+  // UI State
+  const [showSettings, setShowSettings] = useState(false);
+  const [showHint, setShowHint] = useState(true);
+  
+  // Reading Settings
+  const [settings, setSettings] = useState<ReadingSettings>({
+    fontSize: 100,
+    theme: "light",
+    pageLayout: "single",
+    zoom: 1,
+  });
 
-  function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
-    setNumPages(numPages);
-    setPageNumber(1);
-  }
+  const { updateProgress, progress: contextProgress, currentPage: contextCurrentPage, setCurrentBook } = useReader();
+  const [dbBook, setDbBook] = useState<{ total_pages?: number } | null>(null);
+  const updateProgressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Add refs to match EPUB reader approach
+  const dbBookRef = useRef<any>(null);
+  const fetchedBookIdRef = useRef<string | null>(null);
 
-  const themeClasses = {
-    light: 'bg-white',
-    dark: 'bg-gray-900 text-white',
-    sepia: 'bg-[#f4ecd8]',
+  // Calculate actual zoom value - fit to height for fit-length
+  const actualZoom = settings.zoom === "fit-length" ? Math.max(0.5, Math.min(2, containerHeight / 800)) : settings.zoom;
+
+  // Auto-hide hint after 5 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowHint(false);
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Hide hint on first interaction
+  const handleFirstInteraction = () => {
+    if (showHint) {
+      setShowHint(false);
+    }
   };
 
-  return (
-    <div className={`min-h-screen ${themeClasses[theme]}`}>
-      <div className="flex flex-col items-center py-8">
-        <Document file={fileUrl} onLoadSuccess={onDocumentLoadSuccess}>
-          <Page 
-            pageNumber={pageNumber} 
-            scale={zoom}
-            className="shadow-lg"
-          />
-        </Document>
-        <div className="mt-4 flex gap-4 items-center">
-          <button
-            onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
-            disabled={pageNumber <= 1}
-            className="px-4 py-2 bg-blue-500 text-white rounded disabled:bg-gray-300"
-          >
-            Previous
-          </button>
-          <span className="text-lg">
-            Page {pageNumber} of {numPages || '?'}
-          </span>
-          <button
-            onClick={() => setPageNumber((p) => (numPages ? Math.min(numPages, p + 1) : p))}
-            disabled={!numPages || pageNumber >= numPages}
-            className="px-4 py-2 bg-blue-500 text-white rounded disabled:bg-gray-300"
-          >
-            Next
-          </button>
+  // Debounced updateProgress to prevent rapid calls (like EPUB reader)
+  const debouncedUpdateProgress = useCallback((pageNum: number, totalPages: number) => {
+    if (updateProgressTimeoutRef.current) {
+      clearTimeout(updateProgressTimeoutRef.current);
+    }
+    updateProgressTimeoutRef.current = setTimeout(() => {
+      console.log('PDF Debounced updateProgress called with:', pageNum, totalPages);
+      updateProgress(pageNum, totalPages);
+    }, 500); // 500ms debounce
+  }, [updateProgress]);
+
+  // Set current book in context when component mounts (like EPUB reader)
+  useEffect(() => {
+    // Skip if we've already set this book
+    if (fetchedBookIdRef.current === bookId) {
+      return;
+    }
+
+    async function setContextBook() {
+      if (!bookId) return;
+      
+      try {
+        const book = await getBookById(bookId);
+        if (book) {
+          console.log('PDF: Setting current book in context:', book);
+          setCurrentBook({
+            ...book,
+            publicUrl: fileUrl
+          });
+        }
+      } catch (error) {
+        console.error('Failed to set current book in context:', error);
+      }
+    }
+    
+    setContextBook();
+  }, [bookId, fileUrl, setCurrentBook]);
+
+  // Fetch book data from database for progress updates (like EPUB reader)
+  useEffect(() => {
+    let mounted = true;
+    
+    // Skip if we've already fetched this bookId
+    if (fetchedBookIdRef.current === bookId && dbBookRef.current) {
+      return;
+    }
+    
+    async function fetchDbBook() {
+      if (!bookId) return;
+      
+      console.log('PDF Reader fetchDbBook called for bookId:', bookId);
+      
+      try {
+        const book = await getBookById(bookId);
+        console.log('PDF: Fetched book from Supabase:', book);
+        if (mounted) {
+          setDbBook(book);
+          dbBookRef.current = book; // Keep ref in sync
+          fetchedBookIdRef.current = bookId; // Mark as fetched
+        }
+      } catch (error) {
+        console.error('PDF: Failed to fetch book data:', error);
+      }
+    }
+    
+    fetchDbBook();
+    return () => { mounted = false; };
+  }, [bookId]); // Only depend on bookId
+
+  // Reset refs when bookId changes (like EPUB reader)
+  useEffect(() => {
+    dbBookRef.current = null;
+    fetchedBookIdRef.current = null;
+    // Clear any pending updateProgress calls
+    if (updateProgressTimeoutRef.current) {
+      clearTimeout(updateProgressTimeoutRef.current);
+      updateProgressTimeoutRef.current = null;
+    }
+  }, [bookId]);
+
+  // Update progress when page changes (improved like EPUB reader)
+  useEffect(() => {
+    // Use dbBookRef to get the current dbBook without causing state updates
+    const currentDbBook = dbBookRef.current;
+    if (currentDbBook && currentDbBook.total_pages && numPages && pageNumber > 0) {
+      console.log('PDF: Calling updateProgress with:', pageNumber, numPages);
+      debouncedUpdateProgress(pageNumber, numPages);
+    } else {
+      console.log('PDF: Skipping updateProgress - missing data:', {
+        currentDbBook: !!currentDbBook,
+        totalPages: currentDbBook?.total_pages,
+        numPages,
+        pageNumber
+      });
+    }
+  }, [pageNumber, numPages, debouncedUpdateProgress]);
+
+  // Force PDF to load even if database operations fail
+  useEffect(() => {
+    if (error && error.includes('Failed to load PDF')) {
+      console.log('PDF: Attempting to recover from load error');
+      setError(null);
+      setIsLoading(false);
+    }
+  }, [error]);
+
+  // Restore progress when context loads after PDF (fallback restoration)
+  useEffect(() => {
+    if (!numPages) return; // PDF not loaded yet
+    
+    // Only restore if we're still on page 1 (no progress has been restored yet)
+    if (pageNumber === 1) {
+      if (contextCurrentPage && contextCurrentPage > 1) {
+        console.log('Late restoration from context currentPage:', contextCurrentPage);
+        setPageNumber(Math.min(contextCurrentPage, numPages));
+      } else if (contextProgress > 0) {
+        console.log('Late restoration from context progress:', contextProgress);
+        const savedPage = Math.max(1, Math.round((contextProgress / 100) * numPages));
+        setPageNumber(savedPage);
+      }
+    }
+  }, [contextCurrentPage, contextProgress, numPages, pageNumber]);
+
+  function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
+    console.log('PDF: Document loaded successfully with', numPages, 'pages');
+    setNumPages(numPages);
+    setIsLoading(false);
+    
+    // Update database with correct page count if it's missing or incorrect
+    const currentDbBook = dbBookRef.current;
+    if (currentDbBook && (!currentDbBook.total_pages || currentDbBook.total_pages === 0)) {
+      console.log('PDF: Updating database with correct total_pages:', numPages);
+      updateBookTotalPages(currentDbBook.id, numPages);
+    }
+    
+    // Restore progress from context (prioritize currentPage over progress percentage)
+    if (contextCurrentPage && contextCurrentPage > 1) {
+      console.log('PDF: Restoring from context currentPage:', contextCurrentPage);
+      setPageNumber(Math.min(contextCurrentPage, numPages));
+    } else if (contextProgress > 0 && numPages) {
+      console.log('PDF: Restoring from context progress percentage:', contextProgress);
+      const savedPage = Math.max(1, Math.round((contextProgress / 100) * numPages));
+      setPageNumber(savedPage);
+    } else {
+      console.log('PDF: No saved progress found, starting from page 1');
+    setPageNumber(1);
+    }
+  }
+
+  // Helper function to update book total_pages in database
+  const updateBookTotalPages = async (bookId: string, totalPages: number) => {
+    try {
+      const response = await fetch(`/api/books/${bookId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ total_pages: totalPages }),
+      });
+      
+      if (response.ok) {
+        console.log('PDF: Successfully updated total_pages in database');
+        // Update local state
+        setDbBook(prev => prev ? { ...prev, total_pages: totalPages } : null);
+        if (dbBookRef.current) {
+          dbBookRef.current.total_pages = totalPages;
+        }
+      } else {
+        console.warn('PDF: Failed to update total_pages in database');
+      }
+    } catch (error) {
+      console.error('PDF: Error updating total_pages:', error);
+    }
+  };
+
+  function onDocumentLoadError(error: Error) {
+    console.error('PDF: Document load error:', error);
+    setError(`Failed to load PDF: ${error.message}`);
+    setIsLoading(false);
+  }
+
+  const nextPage = useCallback(() => {
+    if (numPages && pageNumber < numPages) {
+      if (settings.pageLayout === "double") {
+        // In double page mode, advance by 2 pages (or 1 if near the end)
+        const increment = pageNumber + 1 < numPages ? 2 : 1;
+        setPageNumber(prev => Math.min(prev + increment, numPages));
+      } else {
+        setPageNumber(prev => prev + 1);
+      }
+    }
+  }, [numPages, pageNumber, settings.pageLayout]);
+
+  const prevPage = useCallback(() => {
+    if (pageNumber > 1) {
+      if (settings.pageLayout === "double") {
+        // In double page mode, go back by 2 pages (or 1 if at the beginning)
+        const decrement = pageNumber > 2 ? 2 : 1;
+        setPageNumber(prev => Math.max(prev - decrement, 1));
+      } else {
+        setPageNumber(prev => prev - 1);
+      }
+    }
+  }, [pageNumber, settings.pageLayout]);
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      prevPage();
+    } else if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") {
+      e.preventDefault();
+      nextPage();
+    } else if (e.key === "Escape") {
+      setShowSettings(false);
+    }
+  }, [nextPage, prevPage]);
+
+  // Add keyboard navigation
+  useEffect(() => {
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    handleFirstInteraction();
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const width = rect.width;
+
+    if (x < width * 0.4) {
+      prevPage();
+    } else if (x > width * 0.6) {
+      nextPage();
+    }
+  };
+
+  const progress = numPages ? ((pageNumber - 1) / numPages) * 100 : 0;
+
+  const themeClasses = {
+    light: 'bg-white text-gray-900',
+    dark: 'bg-gray-900 text-white',
+    sepia: 'bg-amber-50 text-amber-900',
+  };
+
+  const themeStyles = {
+    light: { backgroundColor: "#ffffff" },
+    dark: { backgroundColor: "#111827" },
+    sepia: { backgroundColor: "#fef7ed" },
+  };
+
+  // Add useEffect to track container size for fit-length
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+        setContainerHeight(entry.contentRect.height);
+      }
+    });
+
+    resizeObserver.observe(containerRef.current);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-100">
+        <div className="text-center">
+          <div className="text-red-500 text-lg mb-2">Failed to load PDF</div>
+          <div className="text-gray-600">{error}</div>
         </div>
       </div>
-      <ReaderControls
-        currentZoom={zoom}
-        currentTheme={theme}
-        onZoomChange={setZoom}
-        onThemeChange={setTheme}
-      />
+    );
+  }
+
+  return (
+    <div
+      className={`relative w-full h-screen overflow-hidden ${themeClasses[settings.theme]}`}
+      style={themeStyles[settings.theme]}
+    >
+      {/* Loading State */}
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-white z-50">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+            <div className="text-gray-600">Loading {bookTitle}...</div>
+          </div>
+        </div>
+      )}
+
+      {/* Top Bar - Google Play Books Style */}
+      <div className="absolute top-0 left-0 right-0 z-40">
+        <div
+          className={`px-6 py-4 border-b ${
+            settings.theme === "dark" 
+              ? "bg-gray-900 text-white border-gray-700" 
+              : settings.theme === "sepia"
+              ? "bg-amber-50 text-amber-900 border-amber-200"
+              : "bg-white text-gray-900 border-gray-200"
+          }`}
+        >
+          <div className="flex items-center justify-between max-w-6xl mx-auto">
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={() => window.history.back()}
+                className={`p-2 rounded-full transition-colors ${
+                  settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
+                }`}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <h1 className={`text-xl font-normal ${settings.theme === "dark" ? "text-white" : settings.theme === "sepia" ? "text-amber-900" : "text-gray-900"}`}>
+                {bookTitle}
+              </h1>
+            </div>
+            <div className="flex items-center space-x-1">
+              <button
+                className={`p-2 rounded-full transition-colors ${
+                  settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
+                }`}
+                title="Fullscreen"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
+                  />
+                </svg>
+              </button>
+              <button
+                onClick={() => setShowSettings(!showSettings)}
+                className={`p-2 rounded-full transition-colors relative ${
+                  settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
+                }`}
+                title="Display options"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+                  />
+                </svg>
+              </button>
+              <button
+                className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                title="More options"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Reading Area */}
+      <div
+        ref={containerRef}
+        className="w-full h-full cursor-pointer flex items-center justify-center"
+        onClick={handleClick}
+        style={{
+          paddingTop: "80px",
+          paddingBottom: "60px",
+          paddingLeft: "40px",
+          paddingRight: "40px",
+        }}
+      >
+        <Document 
+          file={fileUrl} 
+          onLoadSuccess={onDocumentLoadSuccess}
+          onLoadError={onDocumentLoadError}
+          loading={
+            <div className="flex items-center justify-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+            </div>
+          }
+        >
+          {settings.pageLayout === "double" && numPages && pageNumber < numPages ? (
+            // Double page layout
+            <div className="flex gap-4 items-start">
+              <Page 
+                pageNumber={pageNumber} 
+                scale={actualZoom}
+                className="shadow-lg"
+                loading={
+                  <div className="flex items-center justify-center p-8">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                  </div>
+                }
+              />
+              {pageNumber + 1 <= (numPages || 0) && (
+                <Page 
+                  pageNumber={pageNumber + 1} 
+                  scale={actualZoom}
+                  className="shadow-lg"
+                  loading={
+                    <div className="flex items-center justify-center p-8">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                    </div>
+                  }
+                />
+              )}
+            </div>
+          ) : (
+            // Single page layout
+          <Page 
+            pageNumber={pageNumber} 
+              scale={actualZoom}
+            className="shadow-lg"
+              loading={
+                <div className="flex items-center justify-center p-8">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                </div>
+              }
+          />
+          )}
+        </Document>
+      </div>
+
+      {/* Progress Bar - Google Play Books Style */}
+      <div className="absolute bottom-0 left-0 right-0 z-40">
+        <div
+          className={`px-6 py-4 ${
+            settings.theme === "dark" ? "bg-gray-900 border-gray-700" : settings.theme === "sepia" ? "bg-amber-50 border-amber-200" : "bg-white border-gray-200"
+          } border-t`}
+        >
+          <div className="flex items-center justify-center space-x-6 max-w-6xl mx-auto">
+          <button
+              onClick={prevPage}
+              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            disabled={pageNumber <= 1}
+          >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+          </button>
+
+            <div className="flex-1 max-w-2xl">
+              <div className="relative">
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 shadow-inner">
+                  <div
+                    className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all duration-500 ease-out shadow-sm"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+                <div className="flex justify-between items-center mt-3">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
+                    <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                      {Math.round(progress)}%
+                    </span>
+                    <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                      Page {pageNumber}{settings.pageLayout === "double" && pageNumber < (numPages || 0) ? `-${pageNumber + 1}` : ""} / {numPages || '?'}
+          </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          <button
+              onClick={nextPage}
+              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            disabled={!numPages || pageNumber >= numPages}
+          >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+          </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation Hint */}
+      {showHint && !isLoading && (
+        <div className="absolute inset-0 z-30 pointer-events-none">
+          <div className="absolute top-1/2 left-8 transform -translate-y-1/2 bg-black bg-opacity-80 text-white px-4 py-3 rounded-lg text-sm max-w-xs pointer-events-none">
+            ← Click left 40% of screen to go back
+            <div className="text-xs mt-1 opacity-75">Or use ← arrow key</div>
+          </div>
+          <div className="absolute top-1/2 right-8 transform -translate-y-1/2 bg-black bg-opacity-80 text-white px-4 py-3 rounded-lg text-sm max-w-xs pointer-events-none">
+            Click right 40% of screen to go forward →
+            <div className="text-xs mt-1 opacity-75">Or use → arrow key</div>
+          </div>
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black bg-opacity-80 text-white px-4 py-3 rounded-lg text-sm text-center max-w-xs pointer-events-none">
+            Use the controls above and below
+            <div className="text-xs mt-1 opacity-75">Or keyboard shortcuts</div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Dropdown */}
+      {showSettings && (
+        <div className={`absolute top-20 right-6 w-96 rounded-2xl shadow-2xl border z-50 animate-in slide-in-from-top-2 duration-200 ${
+          settings.theme === "dark" 
+            ? "bg-gray-800 border-gray-700" 
+            : settings.theme === "sepia"
+            ? "bg-amber-50 border-amber-200"
+            : "bg-white border-gray-100"
+        }`}>
+          <div className={`p-6 border-b flex items-center justify-between ${
+            settings.theme === "dark" ? "border-gray-700" : settings.theme === "sepia" ? "border-amber-200" : "border-gray-100"
+          }`}>
+            <h3 className={`text-xl font-semibold ${settings.theme === "dark" ? "text-white" : settings.theme === "sepia" ? "text-amber-900" : "text-gray-900"}`}>
+              Display Settings
+            </h3>
+            <button
+              onClick={() => setShowSettings(false)}
+              className={`p-2 rounded-lg transition-colors ${
+                settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
+              }`}
+            >
+              <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div className="p-6 space-y-8">
+            {/* Theme Selection */}
+            <div>
+              <label className={`block text-lg font-semibold mb-4 ${settings.theme === "dark" ? "text-white" : settings.theme === "sepia" ? "text-amber-900" : "text-gray-900"}`}>
+                Theme
+              </label>
+              <div className="grid grid-cols-3 gap-3">
+                {(["light", "dark", "sepia"] as const).map((theme) => (
+                  <button
+                    key={theme}
+                    onClick={() => setSettings(prev => ({ ...prev, theme }))}
+                    className={`flex flex-col items-center justify-center h-20 rounded-xl border-2 transition-all ${
+                      settings.theme === theme
+                        ? "bg-blue-50 border-blue-300 shadow-md"
+                        : settings.theme === "dark" 
+                          ? "border-gray-600 hover:bg-gray-700 hover:border-gray-500" 
+                          : "border-gray-200 hover:bg-gray-50 hover:border-gray-300"
+                    }`}
+                  >
+                    <div className={`w-8 h-8 rounded-full mb-2 ${
+                      theme === "light" ? "bg-white border-2 border-gray-300" :
+                      theme === "dark" ? "bg-gray-900 border-2 border-gray-600" :
+                      "bg-amber-100 border-2 border-amber-300"
+                    }`}></div>
+                    <span className={`text-sm font-medium ${
+                      settings.theme === theme ? "text-blue-700" : settings.theme === "dark" ? "text-gray-300" : "text-gray-700"
+                    }`}>
+                      {theme.charAt(0).toUpperCase() + theme.slice(1)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Zoom Control */}
+            <div>
+              <label className={`block text-lg font-semibold mb-4 ${settings.theme === "dark" ? "text-white" : settings.theme === "sepia" ? "text-amber-900" : "text-gray-900"}`}>
+                Zoom Level
+              </label>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <button
+                    onClick={() => setSettings(prev => ({ 
+                      ...prev, 
+                      zoom: typeof prev.zoom === "number" ? Math.max(0.5, prev.zoom - 0.1) : 0.9 
+                    }))}
+                    className={`flex items-center justify-center w-12 h-12 rounded-xl border-2 transition-colors ${
+                      settings.theme === "dark" 
+                        ? "border-gray-600 hover:bg-gray-700 hover:border-gray-500" 
+                        : "border-gray-200 hover:bg-gray-50 hover:border-gray-300"
+                    }`}
+                  >
+                    <span className={`text-xl font-bold ${settings.theme === "dark" ? "text-gray-400" : "text-gray-600"}`}>−</span>
+                  </button>
+                  <div className="text-center">
+                    <div className={`text-2xl font-bold ${settings.theme === "dark" ? "text-white" : settings.theme === "sepia" ? "text-amber-900" : "text-gray-900"}`}>
+                      {settings.zoom === "fit-length" ? "Fit Length" : `${Math.round(actualZoom * 100)}%`}
+                    </div>
+                    <div className={`text-sm ${settings.theme === "dark" ? "text-gray-400" : "text-gray-500"}`}>
+                      Zoom Level
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setSettings(prev => ({ 
+                      ...prev, 
+                      zoom: typeof prev.zoom === "number" ? Math.min(3, prev.zoom + 0.1) : 1.1 
+                    }))}
+                    className={`flex items-center justify-center w-12 h-12 rounded-xl border-2 transition-colors ${
+                      settings.theme === "dark" 
+                        ? "border-gray-600 hover:bg-gray-700 hover:border-gray-500" 
+                        : "border-gray-200 hover:bg-gray-50 hover:border-gray-300"
+                    }`}
+                  >
+                    <span className={`text-xl font-bold ${settings.theme === "dark" ? "text-white" : settings.theme === "sepia" ? "text-amber-900" : "text-gray-900"}`}>+</span>
+                  </button>
+                </div>
+                
+                {/* Zoom presets */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSettings(prev => ({ ...prev, zoom: "fit-length" }))}
+                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                      settings.zoom === "fit-length"
+                        ? "bg-blue-100 text-blue-700 border border-blue-300"
+                        : settings.theme === "dark" 
+                          ? "bg-gray-700 text-gray-300 hover:bg-gray-600" 
+                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    Fit Length
+                  </button>
+                  {[0.75, 1, 1.25, 1.5, 2].map((zoomLevel) => (
+                    <button
+                      key={zoomLevel}
+                      onClick={() => setSettings(prev => ({ ...prev, zoom: zoomLevel }))}
+                      className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                        typeof settings.zoom === "number" && Math.abs(settings.zoom - zoomLevel) < 0.01
+                          ? "bg-blue-100 text-blue-700 border border-blue-300"
+                          : settings.theme === "dark" 
+                            ? "bg-gray-700 text-gray-300 hover:bg-gray-600" 
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      }`}
+                    >
+                      {Math.round(zoomLevel * 100)}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Page Layout */}
+            <div>
+              <label className={`block text-lg font-semibold mb-4 ${settings.theme === "dark" ? "text-white" : settings.theme === "sepia" ? "text-amber-900" : "text-gray-900"}`}>
+                Page Layout
+              </label>
+              <div className="grid grid-cols-2 gap-4">
+                {(["single", "double"] as const).map((layout) => (
+                  <button
+                    key={layout}
+                    onClick={() => setSettings(prev => ({ ...prev, pageLayout: layout }))}
+                    className={`flex flex-col items-center justify-center h-24 rounded-xl border-2 transition-all ${
+                      settings.pageLayout === layout
+                        ? "bg-blue-50 border-blue-300 shadow-md"
+                        : settings.theme === "dark" 
+                          ? "border-gray-600 hover:bg-gray-700 hover:border-gray-500" 
+                          : "border-gray-200 hover:bg-gray-50 hover:border-gray-300"
+                    }`}
+                  >
+                    {layout === "single" ? (
+                      <svg className={`w-8 h-8 mb-2 ${
+                        settings.pageLayout === layout ? "text-blue-600" : settings.theme === "dark" ? "text-gray-400" : "text-gray-600"
+                      }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <rect x="8" y="4" width="8" height="16" strokeWidth={2} rx="2" />
+                      </svg>
+                    ) : (
+                      <svg className={`w-8 h-8 mb-2 ${
+                        settings.pageLayout === layout ? "text-blue-600" : settings.theme === "dark" ? "text-gray-400" : "text-gray-600"
+                      }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <rect x="4" y="4" width="6" height="16" strokeWidth={2} rx="2" />
+                        <rect x="14" y="4" width="6" height="16" strokeWidth={2} rx="2" />
+                      </svg>
+                    )}
+                    <span className={`text-sm font-medium ${
+                      settings.pageLayout === layout 
+                        ? "text-blue-700" 
+                        : settings.theme === "dark" ? "text-gray-300" : "text-gray-700"
+                    }`}>
+                      {layout === "single" ? "Single Page" : "Double Page"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className={`mt-3 text-sm ${settings.theme === "dark" ? "text-gray-400" : "text-gray-500"}`}>
+                {settings.pageLayout === "single" 
+                  ? "View one page at a time" 
+                  : "View two pages side by side"}
+              </div>
+            </div>
+
+            {/* Reading Information */}
+            <div className={`pt-4 border-t ${
+              settings.theme === "dark" ? "border-gray-700" : settings.theme === "sepia" ? "border-amber-200" : "border-gray-200"
+            }`}>
+              <div className="grid grid-cols-2 gap-4 text-center">
+                <div>
+                  <div className={`text-2xl font-bold ${settings.theme === "dark" ? "text-white" : settings.theme === "sepia" ? "text-amber-900" : "text-gray-900"}`}>
+                    {pageNumber}
+                    {settings.pageLayout === "double" && pageNumber < (numPages || 0) && (
+                      <span className="text-sm font-normal">-{pageNumber + 1}</span>
+                    )}
+                  </div>
+                  <div className={`text-sm ${settings.theme === "dark" ? "text-gray-400" : "text-gray-500"}`}>
+                    Current Page{settings.pageLayout === "double" ? "s" : ""}
+                  </div>
+                </div>
+                <div>
+                  <div className={`text-2xl font-bold ${settings.theme === "dark" ? "text-white" : settings.theme === "sepia" ? "text-amber-900" : "text-gray-900"}`}>
+                    {numPages || "?"}
+                  </div>
+                  <div className={`text-sm ${settings.theme === "dark" ? "text-gray-400" : "text-gray-500"}`}>
+                    Total Pages
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 } 
