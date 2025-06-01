@@ -1,46 +1,36 @@
 import { Book } from '@/lib/types/book';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
-export function BookCard({ book, onClick }: { book: Book; onClick?: () => void }) {
-  const handleCardClick = (e: React.MouseEvent) => {
-    // Don't trigger onClick if clicking on the Read button
-    if ((e.target as HTMLElement).closest('a')) {
-      return;
-    }
-    onClick?.();
-  };
+export function BookCard({ book }: { book: Book }) {
+  const router = useRouter();
 
-  const handleReadClick = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent the card onClick from firing
+  const handleCardClick = () => {
+    router.push(`/reader/${book.id}`);
   };
 
   return (
     <div
-      className="bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition"
+      className="bg-white rounded-lg shadow p-3 cursor-pointer hover:shadow-lg transition flex flex-col"
       onClick={handleCardClick}
       tabIndex={0}
       role="button"
+      style={{ minHeight: '22rem' }}
     >
-      {book.cover_url ? (
-        <img
-          src={book.cover_url}
-          alt={book.title}
-          className="w-full h-40 object-cover rounded mb-2"
-        />
-      ) : (
-        <div className="w-full h-40 bg-gray-200 rounded mb-2 flex items-center justify-center text-gray-400">
-          No Cover
-        </div>
-      )}
-      <div className="font-semibold text-lg truncate">{book.title}</div>
-      {book.author && <div className="text-sm text-gray-600 truncate">{book.author}</div>}
-      <Link 
-        href={`/reader/${book.id}`}
-        className="mt-2 inline-block px-3 py-1 bg-primary text-white rounded hover:bg-primary-dark text-sm"
-        onClick={handleReadClick}
-      >
-        Read
-      </Link>
+      <div className="w-full aspect-[2/3] bg-white rounded mb-3 flex items-center justify-center overflow-hidden">
+        {book.cover_url ? (
+          <img
+            src={book.cover_url}
+            alt={book.title}
+            className="w-full h-full object-contain"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-400">
+            No Cover
+          </div>
+        )}
+      </div>
+      <div className="font-semibold text-base text-gray-900 mb-0.5 truncate text-left">{book.title}</div>
+      {book.author && <div className="text-sm text-gray-600 truncate text-left">{book.author}</div>}
     </div>
   );
 } 
