@@ -5,27 +5,13 @@ const supabase = createClient();
 
 export async function getReadingProgress(bookId: string): Promise<ReadingProgress | null> {
   try {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      console.log('No authenticated user for reading progress');
-      return null;
-    }
-
     const { data, error } = await supabase
       .from('reading_progress')
       .select('*')
       .eq('book_id', bookId)
-      .eq('user_id', user.id)
       .single();
 
-    if (error) {
-      // If no progress record exists, that's normal - return null
-      if (error.code === 'PGRST116') {
-        console.log('No reading progress found for book:', bookId);
-        return null;
-      }
-      throw error;
-    }
+    if (error) throw error;
     return data;
   } catch (error) {
     console.error('Error fetching reading progress:', error);

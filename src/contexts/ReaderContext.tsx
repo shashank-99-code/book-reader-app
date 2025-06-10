@@ -72,26 +72,16 @@ export function ReaderProvider({ children }: { children: React.ReactNode }) {
       }
       // Only load from Supabase if this book's progress hasn't been loaded yet
       if (progressLoaded === currentBook.id) return;
-      
       try {
         setIsLoading(true);
-        setError(null);
         const savedProgress = await getReadingProgress(currentBook.id);
         if (savedProgress) {
           setCurrentPage(savedProgress.current_page);
           setProgress(savedProgress.progress_percentage);
-        } else {
-          // No saved progress, start from beginning
-          setCurrentPage(1);
-          setProgress(0);
         }
         setProgressLoaded(currentBook.id); // Mark as loaded for this book
       } catch (err) {
-        console.log('Note: Could not load reading progress (this is normal for new books):', err);
-        // Set default values if we can't load progress
-        setCurrentPage(1);
-        setProgress(0);
-        setProgressLoaded(currentBook.id); // Mark as loaded to prevent retrying
+        console.error('Failed to load reading progress:', err);
       } finally {
         setIsLoading(false);
       }

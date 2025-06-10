@@ -162,32 +162,6 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
     };
   }, [fileUrl]);
 
-  // Compute the displayed page number based on progress and total_pages
-  useEffect(() => {
-    let newPage: string | number = 1;
-    // Log values at the start of the useEffect
-    console.log('Debug (useEffect for computedPage entry):', {
-      progress,
-      dbBookTotalPages: dbBook?.total_pages,
-      dbBookExists: !!dbBook
-    });
-
-    if (dbBook && dbBook.total_pages && typeof progress === 'number' && progress > 0) {
-      console.log('Debug page calculation (inside if):', {
-        progress,
-        totalPages: dbBook.total_pages,
-        calculation: (progress / 100) * dbBook.total_pages,
-        rounded: Math.round((progress / 100) * dbBook.total_pages)
-      });
-      const pageNum = Math.max(1, Math.round((progress / 100) * dbBook.total_pages));
-      newPage = pageNum;
-    }
-    if (computedPage !== newPage) {
-      console.log('Setting new page:', newPage, 'Old computedPage:', computedPage);
-      setComputedPage(newPage);
-    }
-  }, [progress, dbBook?.total_pages]);
-
   // Apply bionic reading to text
   const applyBionicReading = useCallback((enabled: boolean, intensity: string | number) => {
     if (!viewerRef.current) return
@@ -351,7 +325,10 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
       // Register locationChanged handler only here
       const handleLocationChanged = (location: any) => {
         setCurrentLocation(location);
-        setCurrentPageNumber(typeof location.index === 'number' ? location.index + 1 : 1);
+        
+        // Use location.index for smooth page progression
+        const pageNum = typeof location.index === 'number' ? location.index + 1 : 1;
+        setCurrentPageNumber(pageNum);
         
         // Store current location in ref for persistence
         currentLocationRef.current = location;
@@ -365,12 +342,13 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
           currentProgress = typeof percent === 'number' ? percent * 100 : 0;
         }
         setProgress(currentProgress);
-        console.log('Location changed (handler updated):', location, 'Set progress to:', currentProgress);
+        console.log('Location changed (handler updated):', location, 'Set progress to:', currentProgress, 'Page:', pageNum);
 
         // Use dbBookRef to get the current dbBook without causing state updates
         const currentDbBook = dbBookRef.current;
         if (currentDbBook && currentDbBook.total_pages) {
-          const pageNum = Math.max(1, Math.round((currentProgress / 100) * currentDbBook.total_pages));
+          // Use the smooth page number instead of percentage-based calculation
+          setComputedPage(pageNum);
           console.log('Calling updateProgress with:', pageNum, currentDbBook.total_pages);
           debouncedUpdateProgress(pageNum, currentDbBook.total_pages);
         } else {

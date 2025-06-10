@@ -130,15 +130,15 @@ export async function POST(req: NextRequest) {
         }
 
         console.log('Updating bookId:', bookId, 'with:', updateData);
-        const { data, error } = await supabase
-          .from('books')
+          const { data, error } = await supabase
+            .from('books')
           .update(updateData)
-          .eq('id', bookId)
-          .select();
-        console.log('Supabase update result:', { data, error });
-        if (error) {
+            .eq('id', bookId)
+            .select();
+          console.log('Supabase update result:', { data, error });
+          if (error) {
           console.error('Error updating book in Supabase:', error);
-        } else {
+          } else {
           console.log('Updated book in Supabase:', updateData);
         }
       } catch (chapterLoopErr) {
