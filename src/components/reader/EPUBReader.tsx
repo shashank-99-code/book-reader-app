@@ -77,6 +77,9 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
   // Tooltip state for slider hover
   const [seekTooltip, setSeekTooltip] = useState({ visible: false, text: '', x: 0 });
 
+  // Map of spine idref -> chapter label for quick lookup
+  const tocLabelMapRef = useRef<Record<string, string>>({});
+
   // Debounced updateProgress to prevent rapid calls
   const debouncedUpdateProgress = useCallback((progressPercentage: number) => {
     if (updateProgressTimeoutRef.current) {
@@ -145,6 +148,24 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
         if (contextProgress > 0) {
           setProgress(contextProgress);
         }
+
+        // Build a label map for chapter tooltip
+        const flattenToc = (items: any[], acc: Record<string,string> = {}) => {
+          items.forEach(item => {
+            if (item.href) {
+              // strip anchor and query
+              const cleanHref = item.href.split('#')[0].split('?')[0];
+              // Find corresponding spine item by href
+              const spineItem = epubBook.spine.get(cleanHref);
+              if (spineItem && spineItem.idref && item.label) {
+                acc[spineItem.idref] = item.label;
+              }
+            }
+            if (item.subitems && item.subitems.length) flattenToc(item.subitems, acc);
+          });
+          return acc;
+        };
+        tocLabelMapRef.current = flattenToc(nav.toc || []);
       } catch (err) {
         console.error("Error loading EPUB:", err);
         setError("Failed to load EPUB file.");
@@ -552,19 +573,15 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
     try {
       const cfi = book.locations.cfiFromPercentage(pct / 100);
       if (cfi) {
-        // Find the spine item for this cfi
         const spineItem = (book.spine as any).get(cfi);
-        if (spineItem) {
-          const href = spineItem.href || spineItem.idref || '';
-          // Try to match with TOC label
-          const navItem = chapters.find(ch => (ch.href && href.includes(ch.href)) || (ch.id && ch.id === spineItem.idref));
-          if (navItem && navItem.label) return navItem.label;
+        if (spineItem && spineItem.idref) {
+          const label = tocLabelMapRef.current[spineItem.idref];
+          if (label) return label;
         }
       }
     } catch {}
-    // fallback to percentage text
     return `${pct.toFixed(1)}%`;
-  }, [book, chapters]);
+  }, [book]);
 
   const handleSliderHover = useCallback((e: React.MouseEvent<HTMLInputElement>) => {
     const rect = (e.target as HTMLElement).getBoundingClientRect();
@@ -900,7 +917,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
                   {/* Tooltip */}
                   {seekTooltip.visible && (
                     <div
-                      className="absolute -top-8 bg-gray-800 text-white text-xs px-2 py-1 rounded shadow"
+                      className="pointer-events-none absolute -top-8 bg-gray-800 text-white text-xs px-2 py-1 rounded shadow"
                       style={{ left: `${seekTooltip.x}px`, transform: 'translateX(-50%)' }}
                     >
                       {seekTooltip.text}
