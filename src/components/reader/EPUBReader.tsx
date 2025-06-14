@@ -4,7 +4,6 @@ import type React from "react"
 import { useEffect, useRef, useState, useCallback } from "react"
 import ePub, { type Book, type Rendition, type NavItem } from "epubjs"
 import { useReader } from '@/contexts/ReaderContext';
-import { getBookById } from '@/lib/services/bookService';
 
 interface EPUBReaderProps {
   fileUrl: string
@@ -25,10 +24,6 @@ interface ReadingSettings {
   }
 }
 
-interface ProgressUpdate {
-  progress_percentage: number;
-}
-
 const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bookId }) => {
   const viewerRef = useRef<HTMLDivElement>(null)
   const [book, setBook] = useState<Book | null>(null)
@@ -44,13 +39,12 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
   const [showHint, setShowHint] = useState(true)
   const [isChangingLayout, setIsChangingLayout] = useState(false)
 
-  // Reading Progress
+  // Reading Progress - SIMPLIFIED
   const [currentLocation, setCurrentLocation] = useState<any>(null)
-  const [progress, setProgress] = useState(0)
+  const [progress, setProgress] = useState(0) // Always percentage (0-100)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(0)
   const [chapters, setChapters] = useState<NavItem[]>([])
-  const [currentPage, setCurrentPage] = useState("")
-  const [currentPageNumber, setCurrentPageNumber] = useState<number>(1);
-  const [computedPage, setComputedPage] = useState<string | number>(1);
 
   // Reading Settings
   const [settings, setSettings] = useState<ReadingSettings>({
@@ -74,40 +68,23 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
 
   const { updateProgress, progress: contextProgress } = useReader();
 
-  const [dbBook, setDbBook] = useState<any>(null);
-  const [dbBookLoading, setDbBookLoading] = useState(true);
-  const [dbBookError, setDbBookError] = useState<string | null>(null);
-  const dbBookRef = useRef<any>(null);
-  const fetchedBookIdRef = useRef<string | null>(null);
+  // Refs for persistence
   const currentLocationRef = useRef<any>(null);
   const updateProgressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isRestoringRef = useRef(false);
+  const restoredFromContextRef = useRef(false);
 
   // Debounced updateProgress to prevent rapid calls
-  const debouncedUpdateProgress = useCallback((pageNum: number, totalPages: number) => {
+  const debouncedUpdateProgress = useCallback((progressPercentage: number) => {
     if (updateProgressTimeoutRef.current) {
       clearTimeout(updateProgressTimeoutRef.current);
     }
     updateProgressTimeoutRef.current = setTimeout(() => {
-      console.log('Debounced updateProgress called with:', pageNum, totalPages);
-      updateProgress(pageNum, totalPages);
-    }, 500); // 500ms debounce
+      console.log('Saving progress:', progressPercentage.toFixed(1) + '%');
+      // ReaderContext.updateProgress expects (page, totalPages). We pass percentage as "page" and 100 as the total for a 0-100 scale.
+      updateProgress(Math.round(progressPercentage), 100);
+    }, 1000); // 1 second debounce
   }, [updateProgress]);
-
-  // Memoize the progress update handler
-  const handleProgressUpdate = useCallback(async (page: number, totalPages: number) => {
-    if (!book) return;
-    try {
-      setIsLoading(true);
-      setError(null);
-      await debouncedUpdateProgress(page, totalPages);
-      setCurrentPage(page.toString());
-      setProgress(page);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update progress');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [book, debouncedUpdateProgress]);
 
   // Auto-hide hint after 5 seconds
   useEffect(() => {
@@ -124,7 +101,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
     }
   }
 
-  // Initialize book (no more page count calculations)
+  // Initialize book and generate locations
   useEffect(() => {
     if (!fileUrl) return;
 
@@ -133,16 +110,33 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
 
     const loadBook = async () => {
       try {
+        console.log('Loading EPUB from:', fileUrl);
         const epubBook = ePub(fileUrl);
         await epubBook.ready;
+        
+        // On some EPUBs book.ready resolves before packaging is fully parsed; wait for book.opened as well
+        if (epubBook.opened && typeof epubBook.opened.then === 'function') {
+          try {
+            await epubBook.opened;
+          } catch (openErr) {
+            console.warn('book.opened awaited with error (continuing):', openErr);
+          }
+        }
+        
+        console.log('EPUB loaded, generating locations...');
+        // Generate locations for consistent pagination (1000 chars per location)
+        await epubBook.locations.generate(1000);
+        const totalLocs = epubBook.locations.length();
+        console.log('Generated', totalLocs, 'locations');
+        
         setBook(epubBook);
+        setTotalPages(totalLocs);
 
-        // Generate locations for progress calculation
-        await epubBook.locations.generate(1000); // 1000 chars per location
-
-    // Load navigation/chapters
+        // Load navigation/chapters
         const nav = await epubBook.loaded.navigation;
         setChapters(nav.toc || []);
+        
+        console.log('Book initialization complete');
       } catch (err) {
         console.error("Error loading EPUB:", err);
         setError("Failed to load EPUB file.");
@@ -159,8 +153,48 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
       if (rendition) {
         rendition.destroy();
       }
+      // Clear any pending progress updates
+      if (updateProgressTimeoutRef.current) {
+        clearTimeout(updateProgressTimeoutRef.current);
+      }
     };
   }, [fileUrl]);
+
+  // Location change handler - SIMPLIFIED AND CONSISTENT
+  const handleLocationChanged = useCallback((location: any) => {
+    if (!book || !location || isRestoringRef.current) {
+      return;
+    }
+
+    console.log('Location changed:', location);
+    setCurrentLocation(location);
+    currentLocationRef.current = location;
+
+    try {
+      // Pure character-based percentage using epub.js
+      let progressPercentage = 0;
+      if (book.locations && location.start && location.start.cfi) {
+        try {
+          const frac = book.locations.percentageFromCfi(location.start.cfi);
+          if (typeof frac === 'number') progressPercentage = frac * 100;
+        } catch (err) {
+          console.warn('percentageFromCfi failed:', err);
+        }
+      } else if (typeof location.percentage === 'number') {
+        progressPercentage = location.percentage * 100;
+      }
+
+      console.log(`Progress (char based): ${progressPercentage.toFixed(2)}%`);
+
+      setProgress(progressPercentage);
+
+      if (progressPercentage > 0) {
+        debouncedUpdateProgress(progressPercentage);
+      }
+    } catch (err) {
+      console.warn('Error calculating location:', err);
+    }
+  }, [book, debouncedUpdateProgress]);
 
   // Apply bionic reading to text
   const applyBionicReading = useCallback((enabled: boolean, intensity: string | number) => {
@@ -169,7 +203,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
     const iframe = viewerRef.current.querySelector("iframe")
     if (!iframe || !iframe.contentDocument) return
 
-                const doc = iframe.contentDocument
+    const doc = iframe.contentDocument
     const textNodes: Text[] = []
 
     // Find all text nodes
@@ -183,7 +217,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
     while ((node = walk.nextNode() as Text)) {
       if (node.textContent && node.textContent.trim().length > 0) {
         textNodes.push(node)
-                }
+      }
     }
 
     // Convert intensity to number if it's a string
@@ -199,8 +233,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
       const text = textNode.textContent || ""
       if (text.trim().length === 0) return
 
-      // Check if the parent already contains a bionic reading processed span
-      // to prevent reprocessing. This is a simple check and might need refinement.
+      // Check if already processed
       if (textNode.parentElement && textNode.parentElement.dataset.bionicApplied === 'true') {
         return;
       }
@@ -215,7 +248,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
 
       const span = doc.createElement("span")
       span.innerHTML = bionicText
-      span.dataset.bionicApplied = 'true'; // Mark as processed
+      span.dataset.bionicApplied = 'true';
       textNode.parentNode?.replaceChild(span, textNode)
     })
   }, [])
@@ -231,10 +264,6 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
       // Apply bionic reading if enabled
       if (currentSettings.bionicReading.enabled) {
         applyBionicReading(true, currentSettings.bionicReading.intensity)
-      } else {
-        // Potentially add logic to remove bionic reading if needed, 
-        // though this might be complex and require reverting DOM changes.
-        // For now, enabling simply applies it.
       }
       
       console.log(`Applied theme: ${currentSettings.theme}, Font: ${currentSettings.fontFamily}, Size: ${currentSettings.fontSize}%`)
@@ -244,20 +273,17 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
     }
   }, [applyBionicReading])
 
-  // Setup rendition ONLY when fileUrl, book, or settings.pageLayout changes
+  // Setup rendition - CLEANED UP
   useEffect(() => {
-    if (!book || !viewerRef.current) return;
+    if (!book || !viewerRef.current || !totalPages) return;
 
     let cancelled = false;
 
     const setup = async () => {
-      // Wait for book to be fully loaded
       await book.ready;
       if (cancelled) return;
 
-      // Ensure locations are generated before restoration
-      console.log('Ensuring book locations are generated for progress restoration...');
-      await book.locations.generate(1000);
+      console.log('Setting up rendition...');
 
       // Clean up previous rendition
       if (rendition) {
@@ -283,83 +309,153 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
         spread: spreadOption,
         minSpreadWidth: 800,
       });
+      
       setRendition(newRendition);
 
-      // Register themes ONCE
+      // Register themes
       const themes = {
-        light: { body: { background: "#ffffff !important", color: "#000000 !important", "line-height": `${settings.lineHeight / 100} !important`, "text-align": `${settings.textAlign} !important` }, p: { color: "#000000 !important", "text-align": `${settings.textAlign} !important`, "line-height": `${settings.lineHeight / 100} !important` }, div: { color: "#000000 !important", "text-align": `${settings.textAlign} !important`, "line-height": `${settings.lineHeight / 100} !important` }, span: { color: "#000000 !important" }, h1: { color: "#000000 !important" }, h2: { color: "#000000 !important" }, h3: { color: "#000000 !important" }, h4: { color: "#000000 !important" }, h5: { color: "#000000 !important" }, h6: { color: "#000000 !important" }, strong: { "font-weight": "bold !important", color: "#000000 !important"} },
-        dark: { body: { background: "#1a1a1a !important", color: "#e0e0e0 !important", "line-height": `${settings.lineHeight / 100} !important`, "text-align": `${settings.textAlign} !important` }, p: { color: "#e0e0e0 !important", "text-align": `${settings.textAlign} !important`, "line-height": `${settings.lineHeight / 100} !important` }, div: { color: "#e0e0e0 !important", "text-align": `${settings.textAlign} !important`, "line-height": `${settings.lineHeight / 100} !important` }, span: { color: "#e0e0e0 !important" }, h1: { color: "#ffffff !important" }, h2: { color: "#ffffff !important" }, h3: { color: "#ffffff !important" }, h4: { color: "#ffffff !important" }, h5: { color: "#ffffff !important" }, h6: { color: "#ffffff !important" }, strong: { "font-weight": "bold !important", color: "#ffffff !important"} },
-        sepia: { body: { background: "#f4f1ea !important", color: "#5c4b37 !important", "line-height": `${settings.lineHeight / 100} !important`, "text-align": `${settings.textAlign} !important` }, p: { color: "#5c4b37 !important", "text-align": `${settings.textAlign} !important`, "line-height": `${settings.lineHeight / 100} !important` }, div: { color: "#5c4b37 !important", "text-align": `${settings.textAlign} !important`, "line-height": `${settings.lineHeight / 100} !important` }, span: { color: "#5c4b37 !important" }, h1: { color: "#4a3f2a !important" }, h2: { color: "#4a3f2a !important" }, h3: { color: "#4a3f2a !important" }, h4: { color: "#4a3f2a !important" }, h5: { color: "#4a3f2a !important" }, h6: { color: "#4a3f2a !important" }, strong: { "font-weight": "bold !important", color: "#4a3f2a !important"} },
+        light: { 
+          body: { 
+            background: "#ffffff !important", 
+            color: "#000000 !important", 
+            "line-height": `${settings.lineHeight / 100} !important`, 
+            "text-align": `${settings.textAlign} !important` 
+          }, 
+          p: { 
+            color: "#000000 !important", 
+            "text-align": `${settings.textAlign} !important`, 
+            "line-height": `${settings.lineHeight / 100} !important` 
+          }, 
+          div: { 
+            color: "#000000 !important", 
+            "text-align": `${settings.textAlign} !important`, 
+            "line-height": `${settings.lineHeight / 100} !important` 
+          }, 
+          span: { color: "#000000 !important" }, 
+          h1: { color: "#000000 !important" }, 
+          h2: { color: "#000000 !important" }, 
+          h3: { color: "#000000 !important" }, 
+          h4: { color: "#000000 !important" }, 
+          h5: { color: "#000000 !important" }, 
+          h6: { color: "#000000 !important" }, 
+          strong: { "font-weight": "bold !important", color: "#000000 !important"} 
+        },
+        dark: { 
+          body: { 
+            background: "#1a1a1a !important", 
+            color: "#e0e0e0 !important", 
+            "line-height": `${settings.lineHeight / 100} !important`, 
+            "text-align": `${settings.textAlign} !important` 
+          }, 
+          p: { 
+            color: "#e0e0e0 !important", 
+            "text-align": `${settings.textAlign} !important`, 
+            "line-height": `${settings.lineHeight / 100} !important` 
+          }, 
+          div: { 
+            color: "#e0e0e0 !important", 
+            "text-align": `${settings.textAlign} !important`, 
+            "line-height": `${settings.lineHeight / 100} !important` 
+          }, 
+          span: { color: "#e0e0e0 !important" }, 
+          h1: { color: "#ffffff !important" }, 
+          h2: { color: "#ffffff !important" }, 
+          h3: { color: "#ffffff !important" }, 
+          h4: { color: "#ffffff !important" }, 
+          h5: { color: "#ffffff !important" }, 
+          h6: { color: "#ffffff !important" }, 
+          strong: { "font-weight": "bold !important", color: "#ffffff !important"} 
+        },
+        sepia: { 
+          body: { 
+            background: "#f4f1ea !important", 
+            color: "#5c4b37 !important", 
+            "line-height": `${settings.lineHeight / 100} !important`, 
+            "text-align": `${settings.textAlign} !important` 
+          }, 
+          p: { 
+            color: "#5c4b37 !important", 
+            "text-align": `${settings.textAlign} !important`, 
+            "line-height": `${settings.lineHeight / 100} !important` 
+          }, 
+          div: { 
+            color: "#5c4b37 !important", 
+            "text-align": `${settings.textAlign} !important`, 
+            "line-height": `${settings.lineHeight / 100} !important` 
+          }, 
+          span: { color: "#5c4b37 !important" }, 
+          h1: { color: "#4a3f2a !important" }, 
+          h2: { color: "#4a3f2a !important" }, 
+          h3: { color: "#4a3f2a !important" }, 
+          h4: { color: "#4a3f2a !important" }, 
+          h5: { color: "#4a3f2a !important" }, 
+          h6: { color: "#4a3f2a !important" }, 
+          strong: { "font-weight": "bold !important", color: "#4a3f2a !important"} 
+        },
       };
+      
       newRendition.themes.register("light", themes.light);
       newRendition.themes.register("dark", themes.dark);
       newRendition.themes.register("sepia", themes.sepia);
+
       // Apply initial settings
       applySettings(newRendition, settings);
 
-      // Restore previous location if available, otherwise display from beginning
+      // Restore position if available
+      isRestoringRef.current = true;
+      let displaySuccess = false;
+      
+      // Try to restore from saved location first
       if (currentLocationRef.current && currentLocationRef.current.start) {
-        console.log('Restoring previous location from ref:', currentLocationRef.current);
-        newRendition.display(currentLocationRef.current.start.cfi);
-      } else if (contextProgress > 0 && book.locations) {
-        // Restore based on saved progress from ReaderContext
-        const progressDecimal = contextProgress / 100;
-        console.log('Restoring position from context progress:', contextProgress, '% =', progressDecimal);
         try {
-          const cfi = book.locations.cfiFromPercentage(progressDecimal);
-          if (cfi) {
-            console.log('Restoring to CFI:', cfi);
-            newRendition.display(cfi);
-          } else {
-            newRendition.display();
+          const savedCfi = currentLocationRef.current.start.cfi;
+          console.log('Restoring to saved location:', savedCfi);
+          await newRendition.display(savedCfi);
+          displaySuccess = true;
+        } catch (err) {
+          console.warn('Failed to restore saved location:', err);
+        }
+      }
+      
+      // Try to restore from context progress if saved location failed
+      if (!displaySuccess && contextProgress > 0) {
+        try {
+          const progressDecimal = contextProgress / 100;
+          const cfiFromProgress = book.locations.cfiFromPercentage(progressDecimal);
+          if (cfiFromProgress) {
+            console.log('Restoring to context progress:', contextProgress + '%', cfiFromProgress);
+            await newRendition.display(cfiFromProgress);
+            displaySuccess = true;
           }
         } catch (err) {
-          console.warn('Failed to restore from progress:', err);
-          newRendition.display();
+          console.warn('Failed to restore from context progress:', err);
         }
-      } else {
-        newRendition.display();
       }
+      
+      // Generic safeguard: if display() keeps failing due to internal epub.js errors, fallback to beginning
+      if (!displaySuccess) {
+        try {
+          await newRendition.display();
+        } catch (fallbackErr) {
+          console.error('Fallback display failed:', fallbackErr);
+        }
+      }
+      
+      setTimeout(() => {
+        isRestoringRef.current = false;
+      }, 1000);
+
       setIsLoading(false);
 
-      // Register locationChanged handler only here
-      const handleLocationChanged = (location: any) => {
-        setCurrentLocation(location);
-        
-        // Use location.index for smooth page progression
-        const pageNum = typeof location.index === 'number' ? location.index + 1 : 1;
-        setCurrentPageNumber(pageNum);
-        
-        // Store current location in ref for persistence
-        currentLocationRef.current = location;
-
-        let currentProgress = 0;
-        if (location && typeof location.percentage === 'number') {
-          currentProgress = location.percentage * 100;
-        } else if (book && book.locations && location?.start?.cfi) {
-          // Fallback to recalculating if location.percentage is not available
-          const percent = book.locations.percentageFromCfi(location.start.cfi);
-          currentProgress = typeof percent === 'number' ? percent * 100 : 0;
-        }
-        setProgress(currentProgress);
-        console.log('Location changed (handler updated):', location, 'Set progress to:', currentProgress, 'Page:', pageNum);
-
-        // Use dbBookRef to get the current dbBook without causing state updates
-        const currentDbBook = dbBookRef.current;
-        if (currentDbBook && currentDbBook.total_pages) {
-          // Use the smooth page number instead of percentage-based calculation
-          setComputedPage(pageNum);
-          console.log('Calling updateProgress with:', pageNum, currentDbBook.total_pages);
-          debouncedUpdateProgress(pageNum, currentDbBook.total_pages);
-        } else {
-          console.log('Skipping updateProgress: dbBook or total_pages not available', currentDbBook);
-        }
-      };
+      // Register location change handler
       newRendition.on('locationChanged', handleLocationChanged);
+
       // Clean up handler on destroy
       newRendition.on('destroy', () => {
         newRendition.off('locationChanged', handleLocationChanged);
       });
+
+      console.log('Rendition setup complete');
     };
 
     setup();
@@ -368,73 +464,63 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
       cancelled = true;
       if (rendition) rendition.destroy();
     };
-  }, [book, fileUrl, settings.pageLayout]);
+  }, [book, totalPages, settings.pageLayout]);
 
-  // Restore position when contextProgress becomes available (e.g., loaded from Supabase)
+  // One-time restore from contextProgress after rendition exists
   useEffect(() => {
-    if (rendition && book && contextProgress > 0 && !currentLocationRef.current) {
-      console.log('Restoring position from context progress after load:', contextProgress, '%');
-      try {
-        const progressDecimal = contextProgress / 100;
-        const cfi = book.locations.cfiFromPercentage(progressDecimal);
-        if (cfi) {
-          console.log('Restoring to CFI from context:', cfi);
-          rendition.display(cfi);
-        }
-      } catch (err) {
-        console.warn('Failed to restore from context progress:', err);
+    if (restoredFromContextRef.current) return;
+    if (!rendition || !book || contextProgress <= 0) return;
+    try {
+      const cfi = book.locations.cfiFromPercentage(contextProgress / 100);
+      if (cfi) {
+        console.log('Restoring from contextProgress effect:', contextProgress, '% =>', cfi);
+        rendition.display(cfi);
+        restoredFromContextRef.current = true;
       }
+    } catch (err) {
+      console.warn('contextProgress restore failed:', err);
     }
-  }, [rendition, book, contextProgress]);
+  }, [contextProgress, rendition, book]);
 
   // Apply settings to existing rendition when settings (except pageLayout) change
   useEffect(() => {
     if (!rendition) return;
     applySettings(rendition, settings);
-  // Exclude settings.pageLayout from this dependency to avoid recreation
-  }, [rendition, settings.theme, settings.fontSize, settings.fontFamily, settings.lineHeight, settings.textAlign, settings.bionicReading]);
+  }, [rendition, settings.theme, settings.fontSize, settings.fontFamily, settings.lineHeight, settings.textAlign, settings.bionicReading, applySettings]);
 
-  const nextPage = () => {
-    if (!rendition || !rendition.next) {
+  // Navigation functions - IMPROVED
+  const nextPage = useCallback(async () => {
+    if (!rendition) {
       console.log("Rendition not ready for next page");
       return;
     }
 
-    console.log("Next page called");
-      rendition
-        .next()
-        .then(() => {
-        console.log("Next page successful");
-        })
-        .catch((err) => {
-        console.error("Error going to next page:", err);
-      });
-  };
+    try {
+      await rendition.next();
+      console.log("Next page -> success");
+    } catch (err) {
+      console.error("Error going to next page:", err);
+    }
+  }, [rendition]);
 
-  const prevPage = () => {
-    if (!rendition || !rendition.prev) {
+  const prevPage = useCallback(async () => {
+    if (!rendition) {
       console.log("Rendition not ready for previous page");
       return;
     }
 
-    console.log("Previous page called");
-      rendition
-        .prev()
-        .then(() => {
-        console.log("Previous page successful");
-        })
-        .catch((err) => {
-        console.error("Error going to previous page:", err);
-      });
-  };
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (!rendition) {
-      console.log("Rendition not ready for keyboard navigation");
-      return;
+    try {
+      await rendition.prev();
+      console.log("Previous page -> success");
+    } catch (err) {
+      console.error("Error going to previous page:", err);
     }
+  }, [rendition]);
 
-    console.log("Key pressed:", e.key);
+  // Keyboard navigation
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (!rendition) return;
+
     if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
       e.preventDefault();
       prevPage();
@@ -444,43 +530,36 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
     } else if (e.key === "Escape") {
       setShowChapters(false);
       setShowSettings(false);
+      setShowSearch(false);
     }
-  };
+  }, [rendition, nextPage, prevPage]);
 
-  // Add keyboard navigation
   useEffect(() => {
-    if (!rendition) return;
-    
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [rendition]);
+  }, [handleKeyDown]);
 
-  // Add a fallback click listener to the entire reading container
-  useEffect(() => {
-    if (!rendition) return;
+  // Click navigation
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-    const handleContainerClick = (e: MouseEvent) => {
-      if (viewerRef.current && viewerRef.current.contains(e.target as Node)) {
-        console.log("Container click detected");
-        const rect = viewerRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const width = rect.width;
+    handleFirstInteraction();
 
-        if (x < width * 0.4) {
-          prevPage();
-          console.log("Previous page clicked (fallback)");
-        } else if (x > width * 0.6) {
-          nextPage();
-          console.log("Next page clicked (fallback)");
-        }
-      }
-    };
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const width = rect.width;
 
-    document.addEventListener("click", handleContainerClick);
-    return () => document.removeEventListener("click", handleContainerClick);
-  }, [rendition]);
+    console.log(`Click at ${((x / width) * 100).toFixed(1)}%`);
 
-  // Close settings dropdown when clicking outside
+    if (x < width * 0.4) {
+      prevPage();
+    } else if (x > width * 0.6) {
+      nextPage();
+    }
+  }, [prevPage, nextPage]);
+
+  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Element
@@ -496,12 +575,13 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
     return () => document.removeEventListener("click", handleClickOutside)
   }, [showSettings, showSearch])
 
-  const goToChapter = (href: string) => {
+  // Chapter navigation
+  const goToChapter = useCallback((href: string) => {
     if (rendition) {
       rendition.display(href)
       setShowChapters(false)
     }
-  }
+  }, [rendition])
 
   // Search functionality
   const performSearch = async (query: string) => {
@@ -550,75 +630,6 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
         })
       }
       
-      // Alternative approach: Search through spine using different method
-      if (results.length === 0) {
-        console.log("Trying alternative spine search")
-        try {
-          // Get all spine items
-          const spineItems = (book.spine as any).spineItems || (book.spine as any).items || []
-          console.log("Found spine items:", spineItems.length)
-          
-          for (let i = 0; i < Math.min(spineItems.length, 10) && results.length < 20; i++) {
-            const item = spineItems[i]
-            try {
-              // Try to get the document
-              const section = book.section(item.href)
-              if (section) {
-                const doc = await section.load(book.load.bind(book))
-                let textContent = ""
-                
-                // Try different ways to extract text
-                if ((doc as any).body) {
-                  textContent = (doc as any).body.textContent || (doc as any).body.innerText || ""
-                } else if (doc.documentElement) {
-                  textContent = doc.documentElement.textContent || (doc.documentElement as any).innerText || ""
-                } else {
-                  textContent = (doc as any).textContent || (doc as any).innerText || ""
-                }
-                
-                console.log(`Section ${i} text length:`, textContent.length)
-                
-                if (textContent && textContent.length > 0) {
-                  const lowerText = textContent.toLowerCase()
-                  const lowerQuery = query.toLowerCase()
-                  let searchIndex = 0
-                  
-                  while (searchIndex < lowerText.length && results.length < 20) {
-                    const foundIndex = lowerText.indexOf(lowerQuery, searchIndex)
-                    if (foundIndex === -1) break
-                    
-                    // Get context around the match
-                    const start = Math.max(0, foundIndex - 50)
-                    const end = Math.min(textContent.length, foundIndex + query.length + 50)
-                    const context = textContent.substring(start, end).trim()
-                    
-                    // Clean up the context
-                    const cleanContext = context.replace(/\s+/g, ' ')
-                    
-                    if (cleanContext.length > query.length) {
-                      results.push({
-                        excerpt: cleanContext,
-                        href: item.href,
-                        chapter: item.title || `Chapter ${i + 1}`,
-                        index: results.length
-                      })
-                      
-                      console.log("Found match:", cleanContext.substring(0, 100))
-                    }
-                    
-                    searchIndex = foundIndex + query.length
-                  }
-                }
-              }
-            } catch (itemError) {
-              console.warn(`Error searching item ${i}:`, itemError)
-            }
-          }
-        } catch (spineError) {
-          console.warn("Spine search failed:", spineError)
-        }
-      }
-      
       console.log("Search completed. Found", results.length, "results")
       setSearchResults(results)
       setCurrentSearchIndex(results.length > 0 ? 0 : -1)
@@ -660,83 +671,6 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
     setShowSearch(false)
   }
 
-  const handleClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-
-    handleFirstInteraction() // Hide hint on first click
-
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const width = rect.width
-
-    console.log(`Click detected at x: ${x}, width: ${width}, percentage: ${((x / width) * 100).toFixed(1)}%`)
-
-    // More generous click areas for navigation
-    if (x < width * 0.4) {
-      prevPage()
-      console.log("Previous page clicked") // Debug log
-    } else if (x > width * 0.6) {
-      nextPage()
-      console.log("Next page clicked") // Debug log
-    } else {
-      // Center click - could add other functionality here if needed
-      console.log("Center clicked - controls are always visible now") // Debug log
-    }
-  }
-
-  // Fetch the book record from Supabase for total_pages
-  useEffect(() => {
-    console.log('EPUBReader useEffect for dbBook running');
-    let mounted = true;
-    
-    // Skip if we've already fetched this bookId
-    if (fetchedBookIdRef.current === bookId && dbBookRef.current) {
-      console.log('Skipping fetch - already have data for bookId:', bookId);
-      return;
-    }
-    
-    async function fetchDbBook() {
-      console.log('EPUBReader fetchDbBook called');
-      setDbBookLoading(true);
-      setDbBookError(null);
-      console.log('EPUBReader bookId prop:', bookId);
-      if (!bookId) {
-        setDbBookError('Book ID not provided');
-        setDbBookLoading(false);
-        return;
-      }
-      try {
-        const book = await getBookById(bookId);
-        console.log('Fetched book from Supabase:', book);
-        if (mounted) {
-          setDbBook(book);
-          dbBookRef.current = book; // Keep ref in sync
-          fetchedBookIdRef.current = bookId; // Mark as fetched
-        }
-      } catch (err) {
-        console.log('Error fetching book from Supabase:', err);
-        if (mounted) setDbBookError('Failed to fetch book record');
-      } finally {
-        if (mounted) setDbBookLoading(false);
-      }
-    }
-    fetchDbBook();
-    return () => { mounted = false; };
-  }, [bookId]);
-
-  // Reset dbBookRef when bookId changes
-  useEffect(() => {
-    dbBookRef.current = null;
-    fetchedBookIdRef.current = null;
-    currentLocationRef.current = null;
-    // Clear any pending updateProgress calls
-    if (updateProgressTimeoutRef.current) {
-      clearTimeout(updateProgressTimeoutRef.current);
-      updateProgressTimeoutRef.current = null;
-    }
-  }, [bookId]);
-
   if (error) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-100">
@@ -775,7 +709,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
         </div>
       )}
 
-      {/* Top Bar - Google Play Books Style */}
+      {/* Top Bar */}
       <div className="absolute top-0 left-0 right-0 z-40">
         <div
           className={`px-6 py-4 border-b ${
@@ -799,21 +733,6 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
               <h1 className={`text-xl font-normal ${settings.theme === "dark" ? "text-white" : "text-gray-900"}`}>{bookTitle}</h1>
             </div>
             <div className="flex items-center space-x-1">
-              <button
-                className={`p-2 rounded-full transition-colors ${
-                  settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
-                }`}
-                title="Fullscreen"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
-                  />
-                </svg>
-              </button>
               <button
                 className={`p-2 rounded-full transition-colors ${
                   settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
@@ -848,24 +767,13 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
               </button>
               <button
                 onClick={() => setShowChapters(!showChapters)}
-                className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                className={`p-2 rounded-full transition-colors ${
+                  settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
+                }`}
                 title="Table of contents"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-              </button>
-              <button
-                className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                title="More options"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
-                  />
                 </svg>
               </button>
             </div>
@@ -891,7 +799,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
         }}
       />
 
-      {/* Progress Bar - Google Play Books Style */}
+      {/* Progress Bar */}
       <div className="absolute bottom-0 left-0 right-0 z-40">
         <div
           className={`px-6 py-4 ${
@@ -901,7 +809,9 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
           <div className="flex items-center justify-center space-x-6 max-w-6xl mx-auto">
             <button
               onClick={prevPage}
-              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              className={`p-2 rounded-full transition-colors ${
+                settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
+              }`}
               disabled={!rendition}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -917,28 +827,18 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
                     style={{ width: `${progress}%` }}
                   />
                 </div>
-                <div className="flex justify-between items-center mt-3">
-                  <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
-                    {dbBookLoading ? (
-                      <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Calculating pages…</span>
-                    ) : dbBook && dbBook.total_pages ? (
-                      <>
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">{Math.round(progress)}%</span>
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                          Page {computedPage} / {dbBook.total_pages}
-                  </span>
-                      </>
-                    ) : (
-                      <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Page count unavailable</span>
-                    )}
-                  </div>
-                </div>
               </div>
+            </div>
+
+            <div className="text-sm font-medium text-gray-600 dark:text-gray-400 min-w-[48px] text-right">
+              {totalPages > 0 ? `${Math.round(progress)}%` : '...'}
             </div>
 
             <button
               onClick={nextPage}
-              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              className={`p-2 rounded-full transition-colors ${
+                settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
+              }`}
               disabled={!rendition}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -957,7 +857,8 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
             <div className="text-xs mt-1 opacity-75">Or use ← arrow key</div>
           </div>
           <div className="absolute top-1/2 right-8 transform -translate-y-1/2 bg-black bg-opacity-80 text-white px-4 py-3 rounded-lg text-sm max-w-xs pointer-events-none">
-            Click right 40% of screen to go forward →<div className="text-xs mt-1 opacity-75">Or use → arrow key</div>
+            Click right 40% of screen to go forward →
+            <div className="text-xs mt-1 opacity-75">Or use → arrow key</div>
           </div>
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black bg-opacity-80 text-white px-4 py-3 rounded-lg text-sm text-center max-w-xs pointer-events-none">
             Use the controls above and below
@@ -993,7 +894,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
         </div>
       )}
 
-      {/* Settings Dropdown - Moved outside of button */}
+      {/* Settings Dropdown */}
       {showSettings && (
         <div className={`settings-dropdown absolute top-20 right-6 w-80 rounded-2xl shadow-2xl border z-50 animate-in slide-in-from-top-2 duration-200 ${
           settings.theme === "dark" 
@@ -1286,7 +1187,6 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
                 onChange={(e) => {
                   const newQuery = e.target.value
                   setSearchQuery(newQuery)
-                  console.log("Search query changed to:", newQuery)
                   if (newQuery.trim()) {
                     performSearch(newQuery)
                   } else {
@@ -1296,7 +1196,6 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && searchQuery.trim()) {
-                    console.log("Enter pressed, performing search for:", searchQuery)
                     performSearch(searchQuery)
                   }
                 }}
