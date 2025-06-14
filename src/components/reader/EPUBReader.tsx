@@ -74,6 +74,9 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
   const isRestoringRef = useRef(false);
   const restoredFromContextRef = useRef(false);
 
+  // Tooltip state for slider hover
+  const [seekTooltip, setSeekTooltip] = useState({ visible: false, text: '', x: 0 });
+
   // Debounced updateProgress to prevent rapid calls
   const debouncedUpdateProgress = useCallback((progressPercentage: number) => {
     if (updateProgressTimeoutRef.current) {
@@ -137,6 +140,11 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
         setChapters(nav.toc || []);
         
         console.log('Book initialization complete');
+
+        // If we already have saved percentage in context, reflect it immediately
+        if (contextProgress > 0) {
+          setProgress(contextProgress);
+        }
       } catch (err) {
         console.error("Error loading EPUB:", err);
         setError("Failed to load EPUB file.");
@@ -517,6 +525,55 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
     }
   }, [rendition]);
 
+  // --- Seek bar handler ---
+  const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const newPercent = Number(e.target.value);
+    setProgress(newPercent);
+
+    if (book && rendition && book.locations && book.locations.length() > 0) {
+      try {
+        const cfi = book.locations.cfiFromPercentage(newPercent / 100);
+        if (cfi) {
+          rendition.display(cfi);
+        }
+      } catch (err) {
+        console.warn('Seek display failed:', err);
+      }
+    }
+
+    if (newPercent > 0) {
+      debouncedUpdateProgress(newPercent);
+    }
+  }, [book, rendition, debouncedUpdateProgress]);
+
+  // Helper to build tooltip text
+  const buildTooltip = useCallback((pct: number) => {
+    if (!book || !book.locations) return `${pct.toFixed(1)}%`;
+    try {
+      const cfi = book.locations.cfiFromPercentage(pct / 100);
+      if (cfi) {
+        // Find the spine item for this cfi
+        const spineItem = (book.spine as any).get(cfi);
+        if (spineItem) {
+          const href = spineItem.href || spineItem.idref || '';
+          // Try to match with TOC label
+          const navItem = chapters.find(ch => (ch.href && href.includes(ch.href)) || (ch.id && ch.id === spineItem.idref));
+          if (navItem && navItem.label) return navItem.label;
+        }
+      }
+    } catch {}
+    // fallback to percentage text
+    return `${pct.toFixed(1)}%`;
+  }, [book, chapters]);
+
+  const handleSliderHover = useCallback((e: React.MouseEvent<HTMLInputElement>) => {
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    const pct = ((e.clientX - rect.left) / rect.width) * 100;
+    setSeekTooltip({ visible: true, text: buildTooltip(pct), x: e.clientX - rect.left });
+  }, [buildTooltip]);
+
+  const hideTooltip = () => setSeekTooltip(prev => ({ ...prev, visible: false }));
+
   // Keyboard navigation
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (!rendition) return;
@@ -826,12 +883,35 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
                     className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all duration-500 ease-out shadow-sm"
                     style={{ width: `${progress}%` }}
                   />
+                  {/* Range slider overlay */}
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={progress}
+                    onChange={handleSeek}
+                    onMouseMove={handleSliderHover}
+                    onMouseEnter={handleSliderHover}
+                    onMouseLeave={hideTooltip}
+                    className="absolute inset-0 w-full h-2 opacity-0 cursor-pointer"
+                  />
+
+                  {/* Tooltip */}
+                  {seekTooltip.visible && (
+                    <div
+                      className="absolute -top-8 bg-gray-800 text-white text-xs px-2 py-1 rounded shadow"
+                      style={{ left: `${seekTooltip.x}px`, transform: 'translateX(-50%)' }}
+                    >
+                      {seekTooltip.text}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
 
             <div className="text-sm font-medium text-gray-600 dark:text-gray-400 min-w-[48px] text-right">
-              {totalPages > 0 ? `${Math.round(progress)}%` : '...'}
+              {progress > 0 ? `${Math.round(progress)}%` : ''}
             </div>
 
             <button
