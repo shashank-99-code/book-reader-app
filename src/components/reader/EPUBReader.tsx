@@ -804,7 +804,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
-              <h1 className={`text-xl font-normal ${settings.theme === "dark" ? "text-white" : "text-gray-900"}`}>{bookTitle}</h1>
+              <h1 className={`text-xl font-normal truncate max-w-[60vw] ${settings.theme === "dark" ? "text-white" : "text-gray-900"}`}>{bookTitle}</h1>
             </div>
             <div className="flex items-center space-x-1">
               <button
@@ -876,11 +876,11 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
       {/* Progress Bar */}
       <div className="absolute bottom-0 left-0 right-0 z-40">
         <div
-          className={`px-6 py-4 ${
+          className={`px-4 py-2 ${
             settings.theme === "dark" ? "bg-gray-900 border-gray-700" : "bg-white border-gray-200"
           } border-t`}
         >
-          <div className="flex items-center justify-center space-x-6 max-w-6xl mx-auto">
+          <div className="flex items-center justify-center space-x-4 max-w-6xl mx-auto">
             <button
               onClick={prevPage}
               className={`p-2 rounded-full transition-colors ${
@@ -893,11 +893,11 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
               </svg>
             </button>
 
-            <div className="flex-1 max-w-2xl">
+            <div className="flex-1 mx-4">
               <div className="relative">
-                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 shadow-inner">
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 shadow-inner">
                   <div
-                    className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all duration-500 ease-out shadow-sm"
+                    className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-500 ease-out shadow-sm"
                     style={{ width: `${progress}%` }}
                   />
                   {/* Range slider overlay */}
@@ -911,7 +911,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
                     onMouseMove={handleSliderHover}
                     onMouseEnter={handleSliderHover}
                     onMouseLeave={hideTooltip}
-                    className="absolute inset-0 w-full h-2 opacity-0 cursor-pointer"
+                    className="absolute inset-0 w-full h-3 opacity-0 cursor-pointer"
                   />
 
                   {/* Tooltip */}
