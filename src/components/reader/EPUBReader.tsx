@@ -128,20 +128,25 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
             console.warn('book.opened awaited with error (continuing):', openErr);
           }
         }
-        
+
+        // Ensure packaging is fully parsed before generating locations
+        try {
+          await (epubBook as any).loaded?.packaging;
+        } catch {}
+
         console.log('EPUB loaded, generating locations...');
         // Generate locations for consistent pagination (1000 chars per location)
         await epubBook.locations.generate(1000);
         const totalLocs = epubBook.locations.length();
         console.log('Generated', totalLocs, 'locations');
-        
+
         setBook(epubBook);
         setTotalPages(totalLocs);
 
         // Load navigation/chapters
         const nav = await epubBook.loaded.navigation;
         setChapters(nav.toc || []);
-        
+
         console.log('Book initialization complete');
 
         // If we already have saved percentage in context, reflect it immediately
@@ -166,6 +171,9 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
           return acc;
         };
         tocLabelMapRef.current = flattenToc(nav.toc || []);
+
+        // Register themes with Google Play Books-like styling
+        // ... existing code ...
       } catch (err) {
         console.error("Error loading EPUB:", err);
         setError("Failed to load EPUB file.");
@@ -177,10 +185,18 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
 
     return () => {
       if (book) {
-        book.destroy();
+        try {
+          book.destroy();
+        } catch (err) {
+          console.warn('Error destroying book:', err);
+        }
       }
       if (rendition) {
-        rendition.destroy();
+        try {
+          rendition.destroy();
+        } catch (err) {
+          console.warn('Error destroying rendition:', err);
+        }
       }
       // Clear any pending progress updates
       if (updateProgressTimeoutRef.current) {
@@ -191,38 +207,38 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
 
   // Location change handler - SIMPLIFIED AND CONSISTENT
   const handleLocationChanged = useCallback((location: any) => {
-    if (!book || !location || isRestoringRef.current) {
+      if (!book || !location || isRestoringRef.current) {
       return;
-    }
+      }
 
     console.log('Location changed:', location);
     setCurrentLocation(location);
     currentLocationRef.current = location;
 
-    try {
+      try {
       // Pure character-based percentage using epub.js
       let progressPercentage = 0;
-      if (book.locations && location.start && location.start.cfi) {
-        try {
+        if (book.locations && location.start && location.start.cfi) {
+          try {
           const frac = book.locations.percentageFromCfi(location.start.cfi);
           if (typeof frac === 'number') progressPercentage = frac * 100;
-        } catch (err) {
+          } catch (err) {
           console.warn('percentageFromCfi failed:', err);
-        }
+          }
       } else if (typeof location.percentage === 'number') {
         progressPercentage = location.percentage * 100;
-      }
+        }
 
       console.log(`Progress (char based): ${progressPercentage.toFixed(2)}%`);
 
       setProgress(progressPercentage);
 
-      if (progressPercentage > 0) {
+        if (progressPercentage > 0) {
         debouncedUpdateProgress(progressPercentage);
-      }
-    } catch (err) {
+        }
+      } catch (err) {
       console.warn('Error calculating location:', err);
-    }
+      }
   }, [book, debouncedUpdateProgress]);
 
   // Apply bionic reading to text
@@ -232,7 +248,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
     const iframe = viewerRef.current.querySelector("iframe")
     if (!iframe || !iframe.contentDocument) return
 
-    const doc = iframe.contentDocument
+                const doc = iframe.contentDocument
     const textNodes: Text[] = []
 
     // Find all text nodes
@@ -246,7 +262,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
     while ((node = walk.nextNode() as Text)) {
       if (node.textContent && node.textContent.trim().length > 0) {
         textNodes.push(node)
-      }
+                }
     }
 
     // Convert intensity to number if it's a string
@@ -288,7 +304,12 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
     try {
       renditionToUpdate.themes.select(currentSettings.theme)
       renditionToUpdate.themes.fontSize(`${currentSettings.fontSize}%`)
-      renditionToUpdate.themes.font(currentSettings.fontFamily)
+
+      // Only apply font-family for safe generic families to avoid epub.js errors
+      const safeFonts = ["serif", "sans-serif", "monospace"];
+      if (safeFonts.includes(currentSettings.fontFamily.toLowerCase())) {
+        renditionToUpdate.themes.font(currentSettings.fontFamily);
+      }
       
       // Apply bionic reading if enabled
       if (currentSettings.bionicReading.enabled) {
@@ -310,6 +331,41 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
 
     const setup = async () => {
       await book.ready;
+
+      // Wait for book to be fully loaded with multiple attempts
+      let attempts = 0;
+      const maxAttempts = 10;
+      
+      while (attempts < maxAttempts) {
+        try {
+          // Wait for all critical components
+          await Promise.all([
+            (book as any).loaded?.packaging,
+            (book as any).loaded?.spine,
+            (book as any).loaded?.manifest
+          ].filter(Boolean));
+          
+          // Check if package is available
+          if ((book as any).package && (book as any).spine && (book as any).spine.length > 0) {
+            console.log('Book fully loaded, package available');
+            break;
+          }
+          
+          console.log(`Book not fully ready, attempt ${attempts + 1}/${maxAttempts}`);
+          await new Promise(resolve => setTimeout(resolve, 200));
+          attempts++;
+          
+        } catch (err) {
+          console.warn(`Book loading attempt ${attempts + 1} failed:`, err);
+          await new Promise(resolve => setTimeout(resolve, 200));
+          attempts++;
+        }
+      }
+
+      if (attempts >= maxAttempts) {
+        throw new Error('Book failed to load completely after multiple attempts');
+      }
+
       if (cancelled) return;
 
       console.log('Setting up rendition...');
@@ -331,35 +387,42 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
       if (!viewerRef.current) return;
       viewerRef.current.innerHTML = "";
       const spreadOption = getSpreadOption(settings.pageLayout);
-      const newRendition = book.renderTo(viewerRef.current, {
-        width: "100%",
-        height: "100%",
-        flow: "paginated",
-        spread: spreadOption,
-        minSpreadWidth: 800,
-      });
       
+      let newRendition;
+      try {
+        newRendition = book.renderTo(viewerRef.current, {
+          width: "100%",
+          height: "100%",
+          flow: "paginated",
+          spread: spreadOption,
+          minSpreadWidth: 800,
+        });
+      } catch (err) {
+        console.error('Failed to create rendition:', err);
+        throw new Error('Failed to create book rendition');
+      }
+
       setRendition(newRendition);
 
       // Register themes
       const themes = {
-        light: { 
-          body: { 
-            background: "#ffffff !important", 
+        light: {
+          body: {
+            background: "#ffffff !important",
             color: "#000000 !important", 
-            "line-height": `${settings.lineHeight / 100} !important`, 
+            "line-height": `${settings.lineHeight / 100} !important`,
             "text-align": `${settings.textAlign} !important` 
-          }, 
-          p: { 
+          },
+          p: {
             color: "#000000 !important", 
-            "text-align": `${settings.textAlign} !important`, 
+            "text-align": `${settings.textAlign} !important`,
             "line-height": `${settings.lineHeight / 100} !important` 
-          }, 
-          div: { 
+          },
+          div: {
             color: "#000000 !important", 
-            "text-align": `${settings.textAlign} !important`, 
+            "text-align": `${settings.textAlign} !important`,
             "line-height": `${settings.lineHeight / 100} !important` 
-          }, 
+          },
           span: { color: "#000000 !important" }, 
           h1: { color: "#000000 !important" }, 
           h2: { color: "#000000 !important" }, 
@@ -369,23 +432,23 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
           h6: { color: "#000000 !important" }, 
           strong: { "font-weight": "bold !important", color: "#000000 !important"} 
         },
-        dark: { 
-          body: { 
+        dark: {
+          body: {
             background: "#1a1a1a !important", 
             color: "#e0e0e0 !important", 
-            "line-height": `${settings.lineHeight / 100} !important`, 
+            "line-height": `${settings.lineHeight / 100} !important`,
             "text-align": `${settings.textAlign} !important` 
-          }, 
-          p: { 
+          },
+          p: {
             color: "#e0e0e0 !important", 
-            "text-align": `${settings.textAlign} !important`, 
+            "text-align": `${settings.textAlign} !important`,
             "line-height": `${settings.lineHeight / 100} !important` 
-          }, 
-          div: { 
+          },
+          div: {
             color: "#e0e0e0 !important", 
-            "text-align": `${settings.textAlign} !important`, 
+            "text-align": `${settings.textAlign} !important`,
             "line-height": `${settings.lineHeight / 100} !important` 
-          }, 
+          },
           span: { color: "#e0e0e0 !important" }, 
           h1: { color: "#ffffff !important" }, 
           h2: { color: "#ffffff !important" }, 
@@ -395,23 +458,23 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
           h6: { color: "#ffffff !important" }, 
           strong: { "font-weight": "bold !important", color: "#ffffff !important"} 
         },
-        sepia: { 
-          body: { 
+        sepia: {
+          body: {
             background: "#f4f1ea !important", 
             color: "#5c4b37 !important", 
-            "line-height": `${settings.lineHeight / 100} !important`, 
+            "line-height": `${settings.lineHeight / 100} !important`,
             "text-align": `${settings.textAlign} !important` 
-          }, 
-          p: { 
+          },
+          p: {
             color: "#5c4b37 !important", 
-            "text-align": `${settings.textAlign} !important`, 
+            "text-align": `${settings.textAlign} !important`,
             "line-height": `${settings.lineHeight / 100} !important` 
-          }, 
-          div: { 
+          },
+          div: {
             color: "#5c4b37 !important", 
-            "text-align": `${settings.textAlign} !important`, 
+            "text-align": `${settings.textAlign} !important`,
             "line-height": `${settings.lineHeight / 100} !important` 
-          }, 
+          },
           span: { color: "#5c4b37 !important" }, 
           h1: { color: "#4a3f2a !important" }, 
           h2: { color: "#4a3f2a !important" }, 
@@ -422,7 +485,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
           strong: { "font-weight": "bold !important", color: "#4a3f2a !important"} 
         },
       };
-      
+
       newRendition.themes.register("light", themes.light);
       newRendition.themes.register("dark", themes.dark);
       newRendition.themes.register("sepia", themes.sepia);
@@ -445,7 +508,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
           console.warn('Failed to restore saved location:', err);
         }
       }
-      
+
       // Try to restore from context progress if saved location failed
       if (!displaySuccess && contextProgress > 0) {
         try {
@@ -460,7 +523,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
           console.warn('Failed to restore from context progress:', err);
         }
       }
-      
+
       // Generic safeguard: if display() keeps failing due to internal epub.js errors, fallback to beginning
       if (!displaySuccess) {
         try {
@@ -469,7 +532,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
           console.error('Fallback display failed:', fallbackErr);
         }
       }
-      
+
       setTimeout(() => {
         isRestoringRef.current = false;
       }, 1000);
@@ -491,7 +554,13 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
 
     return () => {
       cancelled = true;
-      if (rendition) rendition.destroy();
+      if (rendition) {
+        try {
+          rendition.destroy();
+        } catch (err) {
+          console.warn('Error destroying rendition:', err);
+        }
+      }
     };
   }, [book, totalPages, settings.pageLayout]);
 
@@ -499,16 +568,16 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
   useEffect(() => {
     if (restoredFromContextRef.current) return;
     if (!rendition || !book || contextProgress <= 0) return;
-    try {
+      try {
       const cfi = book.locations.cfiFromPercentage(contextProgress / 100);
-      if (cfi) {
+        if (cfi) {
         console.log('Restoring from contextProgress effect:', contextProgress, '% =>', cfi);
         rendition.display(cfi);
         restoredFromContextRef.current = true;
-      }
-    } catch (err) {
+        }
+      } catch (err) {
       console.warn('contextProgress restore failed:', err);
-    }
+      }
   }, [contextProgress, rendition, book]);
 
   // Apply settings to existing rendition when settings (except pageLayout) change
@@ -539,47 +608,97 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
     }
 
     try {
+      // Store current location before navigation
+      const currentLoc = rendition.currentLocation() as any;
+      const currentIndex = currentLoc?.start?.index;
+      
       await rendition.prev();
+      
+      // Check if we moved to a different chapter/section
+      const newLoc = rendition.currentLocation() as any;
+      const newIndex = newLoc?.start?.index;
+      
+      // If we jumped to a different chapter, go to its end instead of beginning
+      if (currentIndex !== undefined && newIndex !== undefined && currentIndex !== newIndex) {
+        console.log(`Chapter boundary crossed: ${newIndex} -> ${currentIndex}, navigating to end of previous chapter`);
+        
+        // Get the section we just navigated to
+        const section = book?.spine.get(newIndex);
+        if (section && book?.locations) {
+          try {
+            // Find the last location in this section by getting the next section's start
+            const nextSection = book.spine.get(newIndex + 1);
+            if (nextSection) {
+              // Get CFI just before the next section starts
+              const nextSectionCfi = nextSection.cfiBase;
+              // Navigate to end of current section
+              const locations = book.locations;
+              const totalLocs = locations.length();
+              
+              // Find location index that corresponds to end of current section
+              for (let i = totalLocs - 1; i >= 0; i--) {
+                const locCfi = locations.cfiFromLocation(i);
+                try {
+                  const locSection = book.spine.get(locCfi);
+                  if (locSection && locSection.index === newIndex) {
+                    // This is the last location in our target section
+                    await rendition.display(locCfi);
+                    console.log("Navigated to end of previous chapter");
+                    break;
+                  }
+                } catch (e) {
+                  // Continue searching if this location doesn't work
+                  continue;
+                }
+              }
+            }
+          } catch (err) {
+            console.warn("Could not navigate to end of previous chapter:", err);
+            // Fall back to default behavior (already at beginning of previous chapter)
+          }
+        }
+      }
+      
       console.log("Previous page -> success");
     } catch (err) {
       console.error("Error going to previous page:", err);
     }
-  }, [rendition]);
+  }, [rendition, book]);
 
   // --- Seek bar handler ---
   const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const newPercent = Number(e.target.value);
     setProgress(newPercent);
 
-    if (book && rendition && book.locations && book.locations.length() > 0) {
-      try {
+      if (book && rendition && book.locations && book.locations.length() > 0) {
+        try {
         const cfi = book.locations.cfiFromPercentage(newPercent / 100);
-        if (cfi) {
+          if (cfi) {
           rendition.display(cfi);
-        }
-      } catch (err) {
+          }
+        } catch (err) {
         console.warn('Seek display failed:', err);
+        }
       }
-    }
 
-    if (newPercent > 0) {
+      if (newPercent > 0) {
       debouncedUpdateProgress(newPercent);
-    }
+      }
   }, [book, rendition, debouncedUpdateProgress]);
 
   // Helper to build tooltip text
   const buildTooltip = useCallback((pct: number) => {
     if (!book || !book.locations) return `${pct.toFixed(1)}%`;
-    try {
+      try {
       const cfi = book.locations.cfiFromPercentage(pct / 100);
-      if (cfi) {
+        if (cfi) {
         const spineItem = (book.spine as any).get(cfi);
-        if (spineItem && spineItem.idref) {
+          if (spineItem && spineItem.idref) {
           const label = tocLabelMapRef.current[spineItem.idref];
           if (label) return label;
+          }
         }
-      }
-    } catch {}
+      } catch {}
     return `${pct.toFixed(1)}%`;
   }, [book]);
 
@@ -626,11 +745,11 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
 
     console.log(`Click at ${((x / width) * 100).toFixed(1)}%`);
 
-    if (x < width * 0.4) {
+        if (x < width * 0.4) {
       prevPage();
-    } else if (x > width * 0.6) {
+        } else if (x > width * 0.6) {
       nextPage();
-    }
+      }
   }, [prevPage, nextPage]);
 
   // Close dropdowns when clicking outside
@@ -798,8 +917,8 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
                 onClick={() => window.history.back()}
                 className={`p-2 rounded-full transition-colors ${
                   settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
-                }`}
-              >
+                  }`}
+                >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
@@ -921,11 +1040,11 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
                       style={{ left: `${seekTooltip.x}px`, transform: 'translateX(-50%)' }}
                     >
                       {seekTooltip.text}
-                    </div>
-                  )}
+                </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
 
             <div className="text-sm font-medium text-gray-600 dark:text-gray-400 min-w-[48px] text-right">
               {progress > 0 ? `${Math.round(progress)}%` : ''}
@@ -966,12 +1085,16 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
 
       {/* Chapters Sidebar */}
       {showChapters && (
-        <div className="absolute inset-0 z-50 flex">
-          <div className="flex-1 bg-black bg-opacity-50" onClick={() => setShowChapters(false)} />
+        <div className="absolute inset-0 z-50">
+          {/* Backdrop */}
           <div
-            className={`w-80 h-full ${
-              settings.theme === "dark" ? "bg-gray-800 text-white" : "bg-white text-gray-900"
-            } shadow-xl overflow-y-auto`}
+            className="absolute inset-0 bg-black/25 backdrop-blur-sm transition-colors"
+            onClick={() => setShowChapters(false)}
+          />
+          <div
+            className={`chapters-panel absolute top-20 right-6 w-96 max-h-[80vh] rounded-2xl shadow-2xl border animate-in slide-in-from-top-2 duration-200 overflow-y-auto ${
+              settings.theme === "dark" ? "bg-gray-800 text-white border-gray-700" : "bg-white text-gray-900 border-gray-100"
+            }`}
           >
             <div className="p-4 border-b border-gray-200 dark:border-gray-700">
               <h2 className="text-lg font-semibold">Chapters</h2>
@@ -1024,8 +1147,8 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
                 }))}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                   settings.theme === "dark" ? "bg-gray-900" : "bg-gray-200"
-                }`}
-              >
+                    }`}
+                  >
                 <span
                   className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                     settings.theme === "dark" ? "translate-x-6" : "translate-x-1"

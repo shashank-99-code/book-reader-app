@@ -46,7 +46,7 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
   const [settings, setSettings] = useState<ReadingSettings>({
     fontSize: 100,
     theme: "light",
-    pageLayout: "single",
+    pageLayout: "double",
     zoom: 1,
   });
 
@@ -347,6 +347,15 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
     return () => resizeObserver.disconnect();
   }, []);
 
+  // Toggle fullscreen similar to EPUBReader
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  };
+
   if (error) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-100">
@@ -402,6 +411,7 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
             </div>
             <div className="flex items-center space-x-1">
               <button
+                onClick={toggleFullscreen}
                 className={`p-2 rounded-full transition-colors ${
                   settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
                 }`}
@@ -453,15 +463,29 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
       {/* Main Reading Area */}
       <div
         ref={containerRef}
-        className="w-full h-full cursor-pointer flex items-center justify-center"
+        className="w-full h-full cursor-pointer flex items-center justify-center relative"
         onClick={handleClick}
         style={{
           paddingTop: "80px",
           paddingBottom: "60px",
-          paddingLeft: "40px",
-          paddingRight: "40px",
+          paddingLeft: settings.pageLayout === "double" ? "40px" : "80px",
+          paddingRight: settings.pageLayout === "double" ? "40px" : "80px",
+          maxWidth: settings.pageLayout === "double" ? "1200px" : "800px",
+          margin: "0 auto",
         }}
       >
+        {/* Page Separator Line - Only visible in double page layout */}
+        {settings.pageLayout === "double" && !isLoading && (
+          <div
+            className={`absolute top-0 bottom-0 left-1/2 transform -translate-x-1/2 w-px z-20 ${
+              settings.theme === "dark" ? "bg-gray-700" : settings.theme === "sepia" ? "bg-amber-200" : "bg-gray-200"
+            }`}
+            style={{
+              top: "80px",
+              bottom: "60px",
+            }}
+          />
+        )}
         <Document 
           file={fileUrl} 
           onLoadSuccess={onDocumentLoadSuccess}
@@ -521,7 +545,7 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
             settings.theme === "dark" ? "bg-gray-900 border-gray-700" : settings.theme === "sepia" ? "bg-amber-50 border-amber-200" : "bg-white border-gray-200"
           } border-t`}
         >
-          <div className="flex items-center justify-center space-x-6 max-w-6xl mx-auto">
+          <div className="flex items-center justify-center space-x-4 max-w-7xl mx-auto">
           <button
               onClick={prevPage}
               className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
@@ -532,25 +556,38 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
               </svg>
           </button>
 
-            <div className="flex-1 max-w-2xl">
+            <div className="flex-1 mx-4">
               <div className="relative">
-                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 shadow-inner">
+                <div className={`w-full rounded-full h-2 ${settings.theme === "dark" ? "bg-gray-700" : "bg-gray-200"}`}>
                   <div
-                    className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all duration-500 ease-out shadow-sm"
+                    className="bg-blue-500 h-2 rounded-full transition-all duration-300 ease-out"
                     style={{ width: `${progress}%` }}
                   />
-                </div>
-                <div className="flex justify-between items-center mt-3">
-                  <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
-                    <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                      {Math.round(progress)}%
-                    </span>
-                    <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                      Page {pageNumber}{settings.pageLayout === "double" && pageNumber < (numPages || 0) ? `-${pageNumber + 1}` : ""} / {numPages || '?'}
-          </span>
-                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={progress}
+                    onChange={(e) => {
+                      const pct = Number(e.target.value);
+                      if (numPages) {
+                        const newPage = Math.max(1, Math.round((pct / 100) * numPages));
+                        setPageNumber(newPage);
+                      }
+                    }}
+                    className="absolute inset-0 w-full h-2 opacity-0 cursor-pointer"
+                  />
                 </div>
               </div>
+            </div>
+
+            <div
+              className={`text-sm font-medium min-w-[80px] text-right ${
+                settings.theme === "dark" ? "text-gray-400" : "text-gray-600"
+              }`}
+            >
+              {numPages ? `${pageNumber}${settings.pageLayout === "double" && pageNumber < numPages ? `-${Math.min(pageNumber + 1, numPages)}` : ""} / ${numPages}` : ""}
             </div>
 
           <button

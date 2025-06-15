@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { use } from 'react';
 import BookViewer from '@/components/book/BookViewer';
-import { getBookById } from '@/lib/services/bookService';
+import { getBookById, updateLastRead } from '@/lib/services/bookService';
 import { getPublicUrl } from '@/lib/services/fileService';
 import { useRouter } from 'next/navigation';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -49,6 +49,15 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
           ...book,
           publicUrl: url
         });
+
+        // Update last_read timestamp when book is opened
+        try {
+          await updateLastRead(resolvedParams.bookId);
+          console.log('Updated last_read timestamp for book:', resolvedParams.bookId);
+        } catch (lastReadError) {
+          console.warn('Failed to update last_read timestamp:', lastReadError);
+          // Don't throw error here as it's not critical for reading functionality
+        }
       } catch (err) {
         if (!mounted) return;
         console.error('Failed to load book:', err);
