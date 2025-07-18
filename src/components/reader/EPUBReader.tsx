@@ -24,7 +24,7 @@ interface ReadingSettings {
   }
 }
 
-const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bookId }) => {
+const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) => {
   const viewerRef = useRef<HTMLDivElement>(null)
   const [book, setBook] = useState<Book | null>(null)
   const [rendition, setRendition] = useState<Rendition | null>(null)
@@ -36,12 +36,8 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
   const [showSettings, setShowSettings] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
   const [showHint, setShowHint] = useState(true)
-  const [isChangingLayout, setIsChangingLayout] = useState<boolean>(false);
-  const [showControls, setShowControls] = useState<boolean>(true);
-
   // Reading Progress - SIMPLIFIED
   const [currentLocation, setCurrentLocation] = useState<number>(0);
-  const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(0);
   const [progress, setProgress] = useState(0) // Always percentage (0-100)
   const [chapters, setChapters] = useState<NavItem[]>([])
@@ -892,15 +888,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
         </div>
       )}
 
-      {/* Layout Changing State */}
-      {isChangingLayout && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 z-40">
-          <div className={`${settings.theme === "dark" ? "bg-gray-800" : "bg-white"} rounded-lg p-6 text-center`}>
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-3"></div>
-            <div className={`${settings.theme === "dark" ? "text-gray-300" : "text-gray-600"}`}>Updating layout...</div>
-          </div>
-        </div>
-      )}
+
 
       {/* Top Bar */}
       <div className="absolute top-0 left-0 right-0 z-40">

@@ -7,7 +7,7 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 export default function ProfilePage() {
   const { user } = useAuth();
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState<{ email: string; full_name?: string; avatar_url?: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const supabase = createClientComponentClient();
 

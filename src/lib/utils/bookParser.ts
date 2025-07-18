@@ -29,7 +29,7 @@ export async function extractBookMetadata(file: File): Promise<{
     try {
       const pdf = await tryExtractPDF();
       const meta = await pdf.getMetadata();
-      const info = meta.info as Record<string, any>;
+      const info = meta.info as Record<string, unknown>;
       
       // Extract total pages - this is crucial for progress tracking
       const numPages = pdf.numPages;
@@ -73,8 +73,8 @@ export async function extractBookMetadata(file: File): Promise<{
       });
       
       return {
-        title: info['Title'] || file.name.replace(/\.[^/.]+$/, ''),
-        author: info['Author'] || '',
+        title: (info['Title'] as string) || file.name.replace(/\.[^/.]+$/, ''),
+        author: (info['Author'] as string) || '',
         total_pages: numPages,
         coverImageBlob
       };
@@ -91,7 +91,7 @@ export async function extractBookMetadata(file: File): Promise<{
         try {
           const pdf = await tryExtractPDF(true); // Retry with local worker
           const meta = await pdf.getMetadata();
-          const info = meta.info as Record<string, any>;
+          const info = meta.info as Record<string, unknown>;
           
           // Extract total pages - this is crucial for progress tracking
           const numPages = pdf.numPages;
@@ -135,8 +135,8 @@ export async function extractBookMetadata(file: File): Promise<{
           });
           
           return {
-            title: info['Title'] || file.name.replace(/\.[^/.]+$/, ''),
-            author: info['Author'] || '',
+            title: (info['Title'] as string) || file.name.replace(/\.[^/.]+$/, ''),
+            author: (info['Author'] as string) || '',
             total_pages: numPages,
             coverImageBlob
           };
@@ -155,7 +155,6 @@ export async function extractBookMetadata(file: File): Promise<{
     }
   } else if (file.type === 'application/epub+zip') {
     // EPUB: extract metadata
-    // @ts-expect-error - epubjs types are not properly typed
     const ePub = (await import('epubjs')).default;
     const arrayBuffer = await file.arrayBuffer();
     const book = ePub(arrayBuffer);

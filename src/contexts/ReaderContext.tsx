@@ -1,8 +1,8 @@
 "use client"
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Book } from '@/lib/types/book';
-import type { ReadingProgress, Bookmark } from "@/lib/types/book"
+import type { Bookmark } from "@/lib/types/book"
 import { getReadingProgress, updateReadingProgress } from "@/lib/services/progressService"
 
 // Extended Book type with publicUrl

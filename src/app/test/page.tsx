@@ -19,6 +19,8 @@ export default function TestPage() {
           throw sessionError
         }
         
+        // Session is available but not used in this test
+        console.log('Session available:', !!session)
         setStatus('success')
       } catch (err) {
         setStatus('error')

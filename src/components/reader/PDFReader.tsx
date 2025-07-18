@@ -18,22 +18,14 @@ interface PDFReaderProps {
   bookId: string;
 }
 
-interface ReadingSettings {
-  fontSize: number;
-  theme: "light" | "dark" | "sepia";
-  pageLayout: "single" | "double";
-  zoom: number | "fit-length";
-}
+
 
 export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
-  const [scale, setScale] = useState(1.5);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [book, setBook] = useState<Book | null>(null);
   const [containerHeight, setContainerHeight] = useState(600);
-  const [containerWidth, setContainerWidth] = useState(800);
   
   // UI State
   const [showSettings, setShowSettings] = useState(false);
@@ -336,7 +328,6 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
 
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width);
         setContainerHeight(entry.contentRect.height);
       }
     });

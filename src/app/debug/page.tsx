@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 export default function DebugPage() {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
-  const [details, setDetails] = useState<any>(null)
+  const [details, setDetails] = useState<Record<string, unknown> | null>(null)
 
   useEffect(() => {
     const testConnection = async () => {

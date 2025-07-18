@@ -27,7 +27,7 @@ export function BookUploader({ onUpload }: { onUpload?: () => void }) {
       const fileExtension = ".jpg"
       const coverFileName = `${userId}/${timestamp}_${bookId}_cover${fileExtension}`
 
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from("book-covers")
         .upload(coverFileName, coverBlob, {
           contentType: "image/jpeg",
@@ -111,7 +111,7 @@ export function BookUploader({ onUpload }: { onUpload?: () => void }) {
 
         if (coverUrl) {
           try {
-            const response = await fetch(`/api/books/${book.id}`, {
+            await fetch(`/api/books/${book.id}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
