@@ -32,17 +32,20 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [book, setBook] = useState<Book | null>(null);
+  const [containerHeight, setContainerHeight] = useState(600);
+  const [containerWidth, setContainerWidth] = useState(800);
   
   // UI State
   const [showSettings, setShowSettings] = useState(false);
   const [showHint, setShowHint] = useState(true);
-  
-  // Reading Settings
-  const [settings, setSettings] = useState<ReadingSettings>({
-    fontSize: 100,
-    theme: "light",
-    pageLayout: "double",
-    zoom: 1,
+  const [settings, setSettings] = useState({
+    theme: 'light' as 'light' | 'dark' | 'sepia',
+    fontSize: 16,
+    fontFamily: 'serif',
+    pageLayout: 'auto' as 'auto' | 'single' | 'double',
+    lineHeight: 1.5,
+    textAlign: 'left' as 'left' | 'justify',
+    zoom: 1.5 as number | 'fit-length'
   });
 
   const { updateProgress, progress: contextProgress, currentPage: contextCurrentPage, setCurrentBook } = useReader();
@@ -163,7 +166,7 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
     } else {
       console.log('PDF: Skipping updateProgress - missing data:', {
         currentDbBook: !!currentDbBook,
-        totalPages: currentDbBook?.total_pages,
+        dbTotalPages: currentDbBook?.total_pages,
         totalPages,
         currentPage
       });
@@ -286,7 +289,7 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
       e.preventDefault();
       nextPage();
     } else if (e.key === "Escape") {
-      setShowSettings(false);
+      // setShowSettings(false); // This line was removed from the new_code, so it's removed here.
     }
   }, [nextPage, prevPage]);
 
