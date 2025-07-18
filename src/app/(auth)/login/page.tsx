@@ -11,15 +11,12 @@ export default function LoginPage() {
       </div>
       <LoginForm />
       <div className="text-center text-sm">
-        <p className="text-gray-600">
-          Don't have an account?{' '}
-          <Link
-            href="/register"
-            className="font-medium text-primary hover:text-primary/90"
-          >
-            Create one
-          </Link>
-        </p>
+        <p className="text-gray-600">Don&apos;t have an account? <a
+          className="font-medium text-primary hover:text-primary/90"
+          href="/register"
+        >
+          Create one
+        </a></p>
       </div>
     </div>
   );

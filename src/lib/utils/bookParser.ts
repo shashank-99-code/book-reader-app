@@ -155,7 +155,7 @@ export async function extractBookMetadata(file: File): Promise<{
     }
   } else if (file.type === 'application/epub+zip') {
     // EPUB: extract metadata
-    // @ts-ignore
+    // @ts-expect-error - epubjs types are not properly typed
     const ePub = (await import('epubjs')).default;
     const arrayBuffer = await file.arrayBuffer();
     const book = ePub(arrayBuffer);

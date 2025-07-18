@@ -15,6 +15,10 @@ const supabase = createClient(
 // Helper function to extract and upload cover image
 async function extractAndUploadCover(epub: any, bookId: string, userId: string): Promise<string | null> {
   try {
+    console.log('Starting cover extraction for book:', bookId);
+    console.log('EPUB metadata:', epub.metadata);
+    console.log('EPUB metadata.cover:', epub.metadata.cover);
+    
     // Try to get cover image from EPUB
     const coverImage = await new Promise<Buffer | null>((resolve) => {
       epub.getImage(epub.metadata.cover, (err: any, data: Buffer | undefined, mimeType: string | undefined) => {
@@ -38,8 +42,11 @@ async function extractAndUploadCover(epub: any, bookId: string, userId: string):
     const fileExtension = '.jpg'; // Default to jpg, can be improved to detect actual type
     const coverFileName = `${userId}/${timestamp}_${bookId}_cover${fileExtension}`;
 
+    console.log('Attempting to upload cover to bucket: book-covers');
+    console.log('Cover filename:', coverFileName);
+
     // Upload cover to Supabase storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('book-covers')
       .upload(coverFileName, coverImage, {
         contentType: 'image/jpeg',
@@ -124,21 +131,21 @@ export async function POST(req: NextRequest) {
         console.log('Hybrid page estimate (1 + chars/2500 + sections):', hybridPages);
 
         // Update Supabase with total_pages and cover_url
-        const updateData: any = { total_pages: totalPages };
+        const updateData: Record<string, any> = { total_pages: totalPages };
         if (coverUrl) {
           updateData.cover_url = coverUrl;
         }
 
         console.log('Updating bookId:', bookId, 'with:', updateData);
-          const { data, error } = await supabase
-            .from('books')
+        const { data, error } = await supabase
+          .from('books')
           .update(updateData)
-            .eq('id', bookId)
-            .select();
-          console.log('Supabase update result:', { data, error });
-          if (error) {
+          .eq('id', bookId)
+          .select();
+        console.log('Supabase update result:', { data, error });
+        if (error) {
           console.error('Error updating book in Supabase:', error);
-          } else {
+        } else {
           console.log('Updated book in Supabase:', updateData);
         }
       } catch (chapterLoopErr) {

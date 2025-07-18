@@ -1,18 +1,13 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { useReader } from '@/contexts/ReaderContext';
+import { Book } from '@/lib/types/book';
 import { getBookById } from '@/lib/services/bookService';
 
-// Configure PDF.js worker - ensure version compatibility with cache busting
-if (typeof window !== 'undefined') {
-  // Try CDN version first for exact version match
-  pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs`;
-  
-  // Fallback to local file if CDN fails (copied during postinstall)
-  pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs?v=4.8.69';
-}
+// Set up PDF.js worker
+pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
@@ -31,12 +26,12 @@ interface ReadingSettings {
 }
 
 export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProps) {
-  const [numPages, setNumPages] = useState<number | null>(null);
-  const [pageNumber, setPageNumber] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  const [scale, setScale] = useState(1.5);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [containerWidth, setContainerWidth] = useState<number>(800);
-  const [containerHeight, setContainerHeight] = useState<number>(600);
+  const [book, setBook] = useState<Book | null>(null);
   
   // UI State
   const [showSettings, setShowSettings] = useState(false);
@@ -162,49 +157,49 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
   useEffect(() => {
     // Use dbBookRef to get the current dbBook without causing state updates
     const currentDbBook = dbBookRef.current;
-    if (currentDbBook && currentDbBook.total_pages && numPages && pageNumber > 0) {
-      console.log('PDF: Calling updateProgress with:', pageNumber, numPages);
-      debouncedUpdateProgress(pageNumber, numPages);
+    if (currentDbBook && currentDbBook.total_pages && totalPages && currentPage > 0) {
+      console.log('PDF: Calling updateProgress with:', currentPage, totalPages);
+      debouncedUpdateProgress(currentPage, totalPages);
     } else {
       console.log('PDF: Skipping updateProgress - missing data:', {
         currentDbBook: !!currentDbBook,
         totalPages: currentDbBook?.total_pages,
-        numPages,
-        pageNumber
+        totalPages,
+        currentPage
       });
     }
-  }, [pageNumber, numPages, debouncedUpdateProgress]);
+  }, [currentPage, totalPages, debouncedUpdateProgress]);
 
   // Force PDF to load even if database operations fail
   useEffect(() => {
     if (error && error.includes('Failed to load PDF')) {
       console.log('PDF: Attempting to recover from load error');
       setError(null);
-      setIsLoading(false);
+      setLoading(false);
     }
   }, [error]);
 
   // Restore progress when context loads after PDF (fallback restoration)
   useEffect(() => {
-    if (!numPages) return; // PDF not loaded yet
+    if (!totalPages) return; // PDF not loaded yet
     
     // Only restore if we're still on page 1 (no progress has been restored yet)
-    if (pageNumber === 1) {
+    if (currentPage === 1) {
       if (contextCurrentPage && contextCurrentPage > 1) {
         console.log('Late restoration from context currentPage:', contextCurrentPage);
-        setPageNumber(Math.min(contextCurrentPage, numPages));
+        setCurrentPage(Math.min(contextCurrentPage, totalPages));
       } else if (contextProgress > 0) {
         console.log('Late restoration from context progress:', contextProgress);
-        const savedPage = Math.max(1, Math.round((contextProgress / 100) * numPages));
-        setPageNumber(savedPage);
+        const savedPage = Math.max(1, Math.round((contextProgress / 100) * totalPages));
+        setCurrentPage(savedPage);
       }
     }
-  }, [contextCurrentPage, contextProgress, numPages, pageNumber]);
+  }, [contextCurrentPage, contextProgress, totalPages, currentPage]);
 
   function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
     console.log('PDF: Document loaded successfully with', numPages, 'pages');
-    setNumPages(numPages);
-    setIsLoading(false);
+    setTotalPages(numPages);
+    setLoading(false);
     
     // Update database with correct page count if it's missing or incorrect
     const currentDbBook = dbBookRef.current;
@@ -216,14 +211,14 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
     // Restore progress from context (prioritize currentPage over progress percentage)
     if (contextCurrentPage && contextCurrentPage > 1) {
       console.log('PDF: Restoring from context currentPage:', contextCurrentPage);
-      setPageNumber(Math.min(contextCurrentPage, numPages));
+      setCurrentPage(Math.min(contextCurrentPage, numPages));
     } else if (contextProgress > 0 && numPages) {
       console.log('PDF: Restoring from context progress percentage:', contextProgress);
       const savedPage = Math.max(1, Math.round((contextProgress / 100) * numPages));
-      setPageNumber(savedPage);
+      setCurrentPage(savedPage);
     } else {
       console.log('PDF: No saved progress found, starting from page 1');
-    setPageNumber(1);
+    setCurrentPage(1);
     }
   }
 
@@ -256,32 +251,32 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
   function onDocumentLoadError(error: Error) {
     console.error('PDF: Document load error:', error);
     setError(`Failed to load PDF: ${error.message}`);
-    setIsLoading(false);
+    setLoading(false);
   }
 
   const nextPage = useCallback(() => {
-    if (numPages && pageNumber < numPages) {
+    if (totalPages && currentPage < totalPages) {
       if (settings.pageLayout === "double") {
         // In double page mode, advance by 2 pages (or 1 if near the end)
-        const increment = pageNumber + 1 < numPages ? 2 : 1;
-        setPageNumber(prev => Math.min(prev + increment, numPages));
+        const increment = currentPage + 1 < totalPages ? 2 : 1;
+        setCurrentPage(prev => Math.min(prev + increment, totalPages));
       } else {
-        setPageNumber(prev => prev + 1);
+        setCurrentPage(prev => prev + 1);
       }
     }
-  }, [numPages, pageNumber, settings.pageLayout]);
+  }, [totalPages, currentPage, settings.pageLayout]);
 
   const prevPage = useCallback(() => {
-    if (pageNumber > 1) {
+    if (currentPage > 1) {
       if (settings.pageLayout === "double") {
         // In double page mode, go back by 2 pages (or 1 if at the beginning)
-        const decrement = pageNumber > 2 ? 2 : 1;
-        setPageNumber(prev => Math.max(prev - decrement, 1));
+        const decrement = currentPage > 2 ? 2 : 1;
+        setCurrentPage(prev => Math.max(prev - decrement, 1));
       } else {
-        setPageNumber(prev => prev - 1);
+        setCurrentPage(prev => prev - 1);
       }
     }
-  }, [pageNumber, settings.pageLayout]);
+  }, [currentPage, settings.pageLayout]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
@@ -318,7 +313,7 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
     }
   };
 
-  const progress = numPages ? ((pageNumber - 1) / numPages) * 100 : 0;
+  const progress = totalPages ? ((currentPage - 1) / totalPages) * 100 : 0;
 
   const themeClasses = {
     light: 'bg-white text-gray-900',
@@ -373,7 +368,7 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
       style={themeStyles[settings.theme]}
     >
       {/* Loading State */}
-      {isLoading && (
+      {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-white z-50">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
@@ -475,7 +470,7 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
         }}
       >
         {/* Page Separator Line - Only visible in double page layout */}
-        {settings.pageLayout === "double" && !isLoading && (
+        {settings.pageLayout === "double" && !loading && (
           <div
             className={`absolute top-0 bottom-0 left-1/2 transform -translate-x-1/2 w-px z-20 ${
               settings.theme === "dark" ? "bg-gray-700" : settings.theme === "sepia" ? "bg-amber-200" : "bg-gray-200"
@@ -496,11 +491,11 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
             </div>
           }
         >
-          {settings.pageLayout === "double" && numPages && pageNumber < numPages ? (
+          {settings.pageLayout === "double" && totalPages && currentPage < totalPages ? (
             // Double page layout
             <div className="flex gap-4 items-start">
               <Page 
-                pageNumber={pageNumber} 
+                pageNumber={currentPage} 
                 scale={actualZoom}
                 className="shadow-lg"
                 loading={
@@ -509,9 +504,9 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
                   </div>
                 }
               />
-              {pageNumber + 1 <= (numPages || 0) && (
+              {currentPage + 1 <= (totalPages || 0) && (
                 <Page 
-                  pageNumber={pageNumber + 1} 
+                  pageNumber={currentPage + 1} 
                   scale={actualZoom}
                   className="shadow-lg"
                   loading={
@@ -525,7 +520,7 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
           ) : (
             // Single page layout
           <Page 
-            pageNumber={pageNumber} 
+            pageNumber={currentPage} 
               scale={actualZoom}
             className="shadow-lg"
               loading={
@@ -549,7 +544,7 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
           <button
               onClick={prevPage}
               className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            disabled={pageNumber <= 1}
+            disabled={currentPage <= 1}
           >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -571,9 +566,9 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
                     value={progress}
                     onChange={(e) => {
                       const pct = Number(e.target.value);
-                      if (numPages) {
-                        const newPage = Math.max(1, Math.round((pct / 100) * numPages));
-                        setPageNumber(newPage);
+                      if (totalPages) {
+                        const newPage = Math.max(1, Math.round((pct / 100) * totalPages));
+                        setCurrentPage(newPage);
                       }
                     }}
                     className="absolute inset-0 w-full h-2 opacity-0 cursor-pointer"
@@ -587,13 +582,13 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
                 settings.theme === "dark" ? "text-gray-400" : "text-gray-600"
               }`}
             >
-              {numPages ? `${pageNumber}${settings.pageLayout === "double" && pageNumber < numPages ? `-${Math.min(pageNumber + 1, numPages)}` : ""} / ${numPages}` : ""}
+              {totalPages ? `${currentPage}${settings.pageLayout === "double" && currentPage < totalPages ? `-${Math.min(currentPage + 1, totalPages)}` : ""} / ${totalPages}` : ""}
             </div>
 
           <button
               onClick={nextPage}
               className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            disabled={!numPages || pageNumber >= numPages}
+            disabled={!totalPages || currentPage >= totalPages}
           >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -604,7 +599,7 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
       </div>
 
       {/* Navigation Hint */}
-      {showHint && !isLoading && (
+      {showHint && !loading && (
         <div className="absolute inset-0 z-30 pointer-events-none">
           <div className="absolute top-1/2 left-8 transform -translate-y-1/2 bg-black bg-opacity-80 text-white px-4 py-3 rounded-lg text-sm max-w-xs pointer-events-none">
             ← Click left 40% of screen to go back
@@ -813,9 +808,9 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
               <div className="grid grid-cols-2 gap-4 text-center">
                 <div>
                   <div className={`text-2xl font-bold ${settings.theme === "dark" ? "text-white" : settings.theme === "sepia" ? "text-amber-900" : "text-gray-900"}`}>
-                    {pageNumber}
-                    {settings.pageLayout === "double" && pageNumber < (numPages || 0) && (
-                      <span className="text-sm font-normal">-{pageNumber + 1}</span>
+                    {currentPage}
+                    {settings.pageLayout === "double" && currentPage < (totalPages || 0) && (
+                      <span className="text-sm font-normal">-{currentPage + 1}</span>
                     )}
                   </div>
                   <div className={`text-sm ${settings.theme === "dark" ? "text-gray-400" : "text-gray-500"}`}>
@@ -824,7 +819,7 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
                 </div>
                 <div>
                   <div className={`text-2xl font-bold ${settings.theme === "dark" ? "text-white" : settings.theme === "sepia" ? "text-amber-900" : "text-gray-900"}`}>
-                    {numPages || "?"}
+                    {totalPages || "?"}
                   </div>
                   <div className={`text-sm ${settings.theme === "dark" ? "text-gray-400" : "text-gray-500"}`}>
                     Total Pages

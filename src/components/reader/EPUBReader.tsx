@@ -32,18 +32,18 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
   const [error, setError] = useState<string | null>(null)
 
   // UI State
-  const [showControls, setShowControls] = useState(true)
   const [showChapters, setShowChapters] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
   const [showHint, setShowHint] = useState(true)
-  const [isChangingLayout, setIsChangingLayout] = useState(false)
+  const [isChangingLayout, setIsChangingLayout] = useState<boolean>(false);
+  const [showControls, setShowControls] = useState<boolean>(true);
 
   // Reading Progress - SIMPLIFIED
-  const [currentLocation, setCurrentLocation] = useState<any>(null)
+  const [currentLocation, setCurrentLocation] = useState<number>(0);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [totalPages, setTotalPages] = useState<number>(0);
   const [progress, setProgress] = useState(0) // Always percentage (0-100)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(0)
   const [chapters, setChapters] = useState<NavItem[]>([])
 
   // Reading Settings
@@ -1509,7 +1509,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bo
                 <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
-                <p>No results found for "{searchQuery}"</p>
+                <p>No results found for &quot;{searchQuery}&quot;</p>
               </div>
             )}
           </div>

@@ -48,6 +48,25 @@ export function BookUploader({ onUpload }: { onUpload?: () => void }) {
     }
   }
 
+  // Backend EPUB length analysis
+  async function analyzeBookLength(file: File, bookId: string) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('book_id', bookId);
+    formData.append('user_id', user!.id);
+
+    const res = await fetch('/api/books/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!res.ok) {
+      console.warn('Length analysis failed');
+      return;
+    }
+    console.log('Length analysis complete! Check server console for details.');
+  }
+
   const handleFile = async (file: File) => {
     if (!user) {
       setError("You must be logged in to upload books.")
@@ -82,16 +101,9 @@ export function BookUploader({ onUpload }: { onUpload?: () => void }) {
         last_read: null,
       })
 
-      // If EPUB, trigger server-side metadata extraction
-      if (file.type === 'application/epub+zip' && book && book.id) {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('book_id', book.id);
-        formData.append('user_id', user.id);
-        await fetch('/api/books/upload', {
-          method: 'POST',
-          body: formData,
-        });
+      // Call backend analysis after book record is created, passing book id
+      if (book && book.id) {
+        await analyzeBookLength(file, book.id);
       }
 
       if (coverImageBlob && book && book.id) {
