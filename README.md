@@ -28,4 +28,4 @@ A modern web-based book reading application built with Next.js and Supabase.
 
 This app is configured for deployment on Vercel with automatic builds from the main branch.
 
-<!-- Force deployment update -->
+<!-- Force deployment update - 2025-07-19 04:20 -->
