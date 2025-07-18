@@ -11,6 +11,7 @@ export interface Book {
   total_pages: number;
   uploaded_at: string;
   last_read: string | null;
+  progress_percentage?: number; // Optional progress from reading_progress table
 }
 
 export interface ReadingProgress {
