@@ -4,10 +4,11 @@ import { createClient } from '@supabase/supabase-js';
 // Debug log for environment variable
 console.log('SERVICE ROLE KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // Use the service role key for backend
-);
+// Supabase client commented out since not used in simplified version
+// const supabase = createClient(
+//   process.env.NEXT_PUBLIC_SUPABASE_URL!,
+//   process.env.SUPABASE_SERVICE_ROLE_KEY! // Use the service role key for backend
+// );
 
 export async function POST(req: NextRequest) {
   // Parse the uploaded file (assume multipart/form-data)

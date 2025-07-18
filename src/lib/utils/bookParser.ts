@@ -15,6 +15,7 @@ export async function extractBookMetadata(file: File): Promise<{
     }
     
     // Function to try extracting with fallback
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const tryExtractPDF = async (retryWithLocal = false): Promise<any> => {
       if (retryWithLocal) {
         // Fallback to local worker if CDN fails

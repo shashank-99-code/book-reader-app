@@ -44,6 +44,7 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
   const containerRef = useRef<HTMLDivElement>(null);
   
   // Add refs to match EPUB reader approach
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const dbBookRef = useRef<any>(null);
   const fetchedBookIdRef = useRef<string | null>(null);
 

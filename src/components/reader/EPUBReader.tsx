@@ -57,6 +57,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
 
   // Search State
   const [searchQuery, setSearchQuery] = useState("")
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [currentSearchIndex, setCurrentSearchIndex] = useState(-1)
@@ -64,6 +65,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
   const { updateProgress, progress: contextProgress } = useReader();
 
   // Refs for persistence
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const currentLocationRef = useRef<any>(null);
   const updateProgressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isRestoringRef = useRef(false);
@@ -126,6 +128,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
 
         // Ensure packaging is fully parsed before generating locations
         try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           await (epubBook as any).loaded?.packaging;
         } catch {}
 
@@ -150,6 +153,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
         }
 
         // Build a label map for chapter tooltip
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const flattenToc = (items: any[], acc: Record<string,string> = {}) => {
           items.forEach(item => {
             if (item.href) {
@@ -201,6 +205,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
   }, [fileUrl]);
 
   // Location change handler - SIMPLIFIED AND CONSISTENT
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleLocationChanged = useCallback((location: any) => {
       if (!book || !location || isRestoringRef.current) {
       return;
@@ -623,8 +628,6 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
             // Find the last location in this section by getting the next section's start
             const nextSection = book.spine.get(newIndex + 1);
             if (nextSection) {
-              // Get CFI just before the next section starts
-              const nextSectionCfi = nextSection.cfiBase;
               // Navigate to end of current section
               const locations = book.locations;
               const totalLocs = locations.length();
@@ -640,7 +643,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
                     console.log("Navigated to end of previous chapter");
                     break;
                   }
-                } catch (e) {
+                } catch {
                   // Continue searching if this location doesn't work
                   continue;
                 }
@@ -780,15 +783,19 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
     setIsSearching(true)
     try {
       console.log("Starting search for:", query)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const results: any[] = []
       
       // Check if book has search method
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if (typeof (book as any).search === 'function') {
         console.log("Using book.search method")
         try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const searchResults = await (book as any).search(query)
           console.log("Book search results:", searchResults)
           
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           searchResults.forEach((result: any, index: number) => {
             results.push({
               excerpt: result.excerpt || result.text || query,
@@ -805,7 +812,8 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
       // Fallback: Try to search through navigation/chapters
       if (results.length === 0 && book.navigation && book.navigation.toc) {
         console.log("Searching through table of contents")
-        book.navigation.toc.forEach((chapter: any, index: number) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        book.navigation.toc.forEach((chapter: any) => {
           if (chapter.label && chapter.label.toLowerCase().includes(query.toLowerCase())) {
             results.push({
               excerpt: `Chapter: ${chapter.label}`,
@@ -828,6 +836,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const goToSearchResult = (result: any, index: number) => {
     if (rendition) {
       setCurrentSearchIndex(index)
