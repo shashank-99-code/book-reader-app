@@ -37,7 +37,6 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
   const [showSearch, setShowSearch] = useState(false)
   const [showHint, setShowHint] = useState(true)
   // Reading Progress - SIMPLIFIED
-  const [currentLocation, setCurrentLocation] = useState<number>(0);
   const [totalPages, setTotalPages] = useState<number>(0);
   const [progress, setProgress] = useState(0) // Always percentage (0-100)
   const [chapters, setChapters] = useState<NavItem[]>([])
@@ -208,7 +207,6 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
       }
 
     console.log('Location changed:', location);
-    setCurrentLocation(location);
     currentLocationRef.current = location;
 
       try {

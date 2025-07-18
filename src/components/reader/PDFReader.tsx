@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { useReader } from '@/contexts/ReaderContext';
-import { Book } from '@/lib/types/book';
 import { getBookById } from '@/lib/services/bookService';
 
 // Set up PDF.js worker
@@ -41,7 +40,6 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
   });
 
   const { updateProgress, progress: contextProgress, currentPage: contextCurrentPage, setCurrentBook } = useReader();
-  const [dbBook, setDbBook] = useState<{ total_pages?: number } | null>(null);
   const updateProgressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
@@ -124,7 +122,6 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
         const book = await getBookById(bookId);
         console.log('PDF: Fetched book from Supabase:', book);
         if (mounted) {
-          setDbBook(book);
           dbBookRef.current = book; // Keep ref in sync
           fetchedBookIdRef.current = bookId; // Mark as fetched
         }
@@ -230,8 +227,7 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
       
       if (response.ok) {
         console.log('PDF: Successfully updated total_pages in database');
-        // Update local state
-        setDbBook(prev => prev ? { ...prev, total_pages: totalPages } : null);
+        // Update local ref
         if (dbBookRef.current) {
           dbBookRef.current.total_pages = totalPages;
         }
