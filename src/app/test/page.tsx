@@ -11,9 +11,14 @@ export default function TestPage() {
     const testConnection = async () => {
       try {
         const supabase = createClient()
-        const { data, error } = await supabase.from('_test').select('*').limit(1)
         
-        if (error) throw error
+        // Test basic connection by getting auth session
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+        
+        if (sessionError) {
+          throw sessionError
+        }
+        
         setStatus('success')
       } catch (err) {
         setStatus('error')
