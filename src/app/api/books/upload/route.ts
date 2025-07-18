@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 
 // Debug log for environment variable
 console.log('SERVICE ROLE KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY);

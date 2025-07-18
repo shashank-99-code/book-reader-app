@@ -339,12 +339,16 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
         try {
           // Wait for all critical components
           await Promise.all([
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (book as any).loaded?.packaging,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (book as any).loaded?.spine,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (book as any).loaded?.manifest
           ].filter(Boolean));
           
           // Check if package is available
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           if ((book as any).package && (book as any).spine && (book as any).spine.length > 0) {
             console.log('Book fully loaded, package available');
             break;
@@ -608,12 +612,14 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
 
     try {
       // Store current location before navigation
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const currentLoc = rendition.currentLocation() as any;
       const currentIndex = currentLoc?.start?.index;
       
       await rendition.prev();
       
       // Check if we moved to a different chapter/section
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const newLoc = rendition.currentLocation() as any;
       const newIndex = newLoc?.start?.index;
       
@@ -689,6 +695,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
       try {
       const cfi = book.locations.cfiFromPercentage(pct / 100);
         if (cfi) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const spineItem = (book.spine as any).get(cfi);
           if (spineItem && spineItem.idref) {
           const label = tocLabelMapRef.current[spineItem.idref];
