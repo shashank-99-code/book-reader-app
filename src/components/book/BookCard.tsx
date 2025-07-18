@@ -3,11 +3,15 @@
 import type { Book } from "@/lib/types/book"
 import { useRouter } from "next/navigation"
 
-export function BookCard({ book }: { book: Book }) {
+export function BookCard({ book, onClick }: { book: Book; onClick?: () => void }) {
   const router = useRouter()
 
   const handleCardClick = () => {
-    router.push(`/reader/${book.id}`)
+    if (onClick) {
+      onClick()
+    } else {
+      router.push(`/reader/${book.id}`)
+    }
   }
 
   return (
