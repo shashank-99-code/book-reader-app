@@ -5,7 +5,7 @@ import { useBookContext } from '@/contexts/BookContext';
 import { BookGrid } from '@/components/book/BookGrid';
 import { UploadModal } from '@/components/book/UploadModal';
 
-export default function LibraryPage() {
+export default function DashboardPage() {
   const { books, loading, fetchBooks } = useBookContext();
   const [modalOpen, setModalOpen] = useState(false);
 

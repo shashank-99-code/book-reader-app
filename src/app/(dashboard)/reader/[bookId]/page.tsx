@@ -1,53 +1,82 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
-// import { PDFReader } from '@/components/reader/PDFReader'; // No longer directly used here
-import BookViewer from '@/components/book/BookViewer'; // Import BookViewer
-import { getBookById } from '@/lib/services/bookService';
+import { useEffect, useState } from 'react';
+import { use } from 'react';
+import BookViewer from '@/components/book/BookViewer';
+import { getBookById, updateLastRead } from '@/lib/services/bookService';
 import { getPublicUrl } from '@/lib/services/fileService';
 import { useRouter } from 'next/navigation';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { useReader } from '@/contexts/ReaderContext';
+import ReadingProgress from '@/components/reader/ReadingProgress';
 
 export default function ReaderPage({ params }: { params: Promise<{ bookId: string }> }) {
-  const resolvedParams = use(params); // Unwrap the params Promise
-  const [fileUrl, setFileUrl] = useState<string | null>(null);
-  const [fileType, setFileType] = useState<string | null>(null);
-  const [bookTitle, setBookTitle] = useState<string>('Book'); // Add bookTitle state
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const resolvedParams = use(params);
   const router = useRouter();
+  const { 
+    currentBook,
+    setCurrentBook,
+    isLoading: contextLoading,
+    error: contextError,
+    settings
+  } = useReader();
 
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load book data
   useEffect(() => {
+    let mounted = true;
+
     async function loadBook() {
       try {
-        const book = await getBookById(resolvedParams.bookId); // Use resolvedParams
+        setIsLoading(true);
+        setError(null);
+        const book = await getBookById(resolvedParams.bookId);
+        if (!mounted) return;
+        
         if (!book) {
-          setError('Book not found');
-          // setLoading(false); // Already handled in finally
-          return;
+          throw new Error('Book not found');
         }
-        if (!book.file_path || !book.file_type) { // Check for file_path and file_type
-          setError('Book data is incomplete (missing file path or type).');
-          // setLoading(false); // Already handled in finally
-          return;
+        if (!book.file_path || !book.file_type) {
+          throw new Error('Book data is incomplete (missing file path or type).');
         }
+        
         const url = await getPublicUrl(book.file_path);
-        // console.log('Book public URL:', url); // Keep for debugging if needed
-        // console.log('Book file type:', book.file_type);
-        setFileUrl(url);
-        setFileType(book.file_type); // Set the fileType
-        setBookTitle(book.title || 'Untitled Book'); // Set the book title
+        if (!mounted) return;
+        
+        setCurrentBook({
+          ...book,
+          publicUrl: url
+        });
+
+        // Update last_read timestamp when book is opened
+        try {
+          await updateLastRead(resolvedParams.bookId);
+          console.log('Updated last_read timestamp for book:', resolvedParams.bookId);
+        } catch (lastReadError) {
+          console.warn('Failed to update last_read timestamp:', lastReadError);
+          // Don't throw error here as it's not critical for reading functionality
+        }
       } catch (err) {
-        console.error('Failed to load book:', err); // Log the actual error
+        if (!mounted) return;
+        console.error('Failed to load book:', err);
         setError(err instanceof Error ? err.message : 'Failed to load book');
       } finally {
-        setLoading(false);
+        if (mounted) {
+          setIsLoading(false);
+        }
       }
     }
-    loadBook();
-  }, [resolvedParams.bookId]); // Use resolvedParams
 
-  if (loading) {
+    loadBook();
+
+    return () => {
+      mounted = false;
+    };
+  }, [resolvedParams.bookId, setCurrentBook]);
+
+  if (isLoading || contextLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <LoadingSpinner className="w-8 h-8" />
@@ -55,10 +84,10 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
     );
   }
 
-  if (error) {
+  if (error || contextError) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen">
-        <p className="text-red-500 mb-4">Error: {error}</p> {/* Better error display */}
+        <p className="text-red-500 mb-4">Error: {error || contextError}</p>
         <button
           onClick={() => router.push('/library')}
           className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
@@ -69,20 +98,32 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
     );
   }
 
-  if (!fileUrl || !fileType) { // Check both fileUrl and fileType before rendering BookViewer
+  if (!currentBook?.publicUrl || !currentBook?.file_type) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen">
         <p className="text-yellow-500 mb-4">File URL or type not available.</p>
         <button
-            onClick={() => router.push('/library')}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          onClick={() => router.push('/library')}
+          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
         >
-            Back to Library
+          Back to Library
         </button>
       </div>
     );
   }
 
-  // return <PDFReader fileUrl={fileUrl} />; // Old rendering
-  return <BookViewer fileUrl={fileUrl} fileType={fileType} bookTitle={bookTitle} />; // Render BookViewer
+  return (
+    <div 
+      className={`min-h-screen ${settings.theme === 'dark' ? 'bg-gray-900' : settings.theme === 'sepia' ? 'bg-amber-50' : 'bg-white'}`}
+      suppressHydrationWarning
+    >
+      <BookViewer 
+        fileUrl={currentBook.publicUrl} 
+        fileType={currentBook.file_type} 
+        bookTitle={currentBook.title || 'Untitled Book'} 
+        bookId={currentBook.id || resolvedParams.bookId}
+      />
+      <ReadingProgress />
+    </div>
+  );
 } 

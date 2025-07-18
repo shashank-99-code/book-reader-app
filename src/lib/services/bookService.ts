@@ -14,9 +14,22 @@ export async function getUserBooks(userId: string) {
     .from('books')
     .select('*')
     .eq('user_id', userId)
+    .order('last_read', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false });
   if (error) throw new Error(error.message);
   return data as Book[];
+}
+
+export async function updateLastRead(bookId: string) {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('books')
+    .update({ last_read: new Date().toISOString() })
+    .eq('id', bookId)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as Book;
 }
 
 export async function deleteBook(bookId: string) {

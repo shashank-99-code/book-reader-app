@@ -3,10 +3,12 @@
 import type React from "react"
 import { useEffect, useRef, useState, useCallback } from "react"
 import ePub, { type Book, type Rendition, type NavItem } from "epubjs"
+import { useReader } from '@/contexts/ReaderContext';
 
 interface EPUBReaderProps {
   fileUrl: string
   bookTitle?: string
+  bookId: string;
 }
 
 interface ReadingSettings {
@@ -22,7 +24,7 @@ interface ReadingSettings {
   }
 }
 
-const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) => {
+const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book", bookId }) => {
   const viewerRef = useRef<HTMLDivElement>(null)
   const [book, setBook] = useState<Book | null>(null)
   const [rendition, setRendition] = useState<Rendition | null>(null)
@@ -37,11 +39,12 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
   const [showHint, setShowHint] = useState(true)
   const [isChangingLayout, setIsChangingLayout] = useState(false)
 
-  // Reading Progress
+  // Reading Progress - SIMPLIFIED
   const [currentLocation, setCurrentLocation] = useState<any>(null)
-  const [progress, setProgress] = useState(0)
+  const [progress, setProgress] = useState(0) // Always percentage (0-100)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(0)
   const [chapters, setChapters] = useState<NavItem[]>([])
-  const [currentPage, setCurrentPage] = useState("")
 
   // Reading Settings
   const [settings, setSettings] = useState<ReadingSettings>({
@@ -63,13 +66,31 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
   const [isSearching, setIsSearching] = useState(false)
   const [currentSearchIndex, setCurrentSearchIndex] = useState(-1)
 
-  // Auto-hide controls after 3 seconds - DISABLED for now
-  // useEffect(() => {
-  //   if (showControls) {
-  //     const timer = setTimeout(() => setShowControls(false), 3000);
-  //     return () => clearTimeout(timer);
-  //   }
-  // }, [showControls]);
+  const { updateProgress, progress: contextProgress } = useReader();
+
+  // Refs for persistence
+  const currentLocationRef = useRef<any>(null);
+  const updateProgressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isRestoringRef = useRef(false);
+  const restoredFromContextRef = useRef(false);
+
+  // Tooltip state for slider hover
+  const [seekTooltip, setSeekTooltip] = useState({ visible: false, text: '', x: 0 });
+
+  // Map of spine idref -> chapter label for quick lookup
+  const tocLabelMapRef = useRef<Record<string, string>>({});
+
+  // Debounced updateProgress to prevent rapid calls
+  const debouncedUpdateProgress = useCallback((progressPercentage: number) => {
+    if (updateProgressTimeoutRef.current) {
+      clearTimeout(updateProgressTimeoutRef.current);
+    }
+    updateProgressTimeoutRef.current = setTimeout(() => {
+      console.log('Saving progress:', progressPercentage.toFixed(1) + '%');
+      // ReaderContext.updateProgress expects (page, totalPages). We pass percentage as "page" and 100 as the total for a 0-100 scale.
+      updateProgress(Math.round(progressPercentage), 100);
+    }, 1000); // 1 second debounce
+  }, [updateProgress]);
 
   // Auto-hide hint after 5 seconds
   useEffect(() => {
@@ -86,464 +107,674 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
     }
   }
 
-  // Initialize book
+  // Initialize book and generate locations
   useEffect(() => {
-    if (!fileUrl) return
+    if (!fileUrl) return;
 
-    setIsLoading(true)
-    setError(null)
-    const epubBook = ePub(fileUrl)
-    setBook(epubBook)
+    setIsLoading(true);
+    setError(null);
 
-    // Load navigation/chapters
-    epubBook.loaded.navigation.then((nav: any) => {
-      setChapters(nav.toc || [])
-    })
+    const loadBook = async () => {
+      try {
+        console.log('Loading EPUB from:', fileUrl);
+        const epubBook = ePub(fileUrl);
+        await epubBook.ready;
+        
+        // On some EPUBs book.ready resolves before packaging is fully parsed; wait for book.opened as well
+        if (epubBook.opened && typeof epubBook.opened.then === 'function') {
+          try {
+            await epubBook.opened;
+          } catch (openErr) {
+            console.warn('book.opened awaited with error (continuing):', openErr);
+          }
+        }
+
+        // Ensure packaging is fully parsed before generating locations
+        try {
+          await (epubBook as any).loaded?.packaging;
+        } catch {}
+
+        console.log('EPUB loaded, generating locations...');
+        // Generate locations for consistent pagination (1000 chars per location)
+        await epubBook.locations.generate(1000);
+        const totalLocs = epubBook.locations.length();
+        console.log('Generated', totalLocs, 'locations');
+
+        setBook(epubBook);
+        setTotalPages(totalLocs);
+
+        // Load navigation/chapters
+        const nav = await epubBook.loaded.navigation;
+        setChapters(nav.toc || []);
+
+        console.log('Book initialization complete');
+
+        // If we already have saved percentage in context, reflect it immediately
+        if (contextProgress > 0) {
+          setProgress(contextProgress);
+        }
+
+        // Build a label map for chapter tooltip
+        const flattenToc = (items: any[], acc: Record<string,string> = {}) => {
+          items.forEach(item => {
+            if (item.href) {
+              // strip anchor and query
+              const cleanHref = item.href.split('#')[0].split('?')[0];
+              // Find corresponding spine item by href
+              const spineItem = epubBook.spine.get(cleanHref);
+              if (spineItem && spineItem.idref && item.label) {
+                acc[spineItem.idref] = item.label;
+              }
+            }
+            if (item.subitems && item.subitems.length) flattenToc(item.subitems, acc);
+          });
+          return acc;
+        };
+        tocLabelMapRef.current = flattenToc(nav.toc || []);
+
+        // Register themes with Google Play Books-like styling
+        // ... existing code ...
+      } catch (err) {
+        console.error("Error loading EPUB:", err);
+        setError("Failed to load EPUB file.");
+        setIsLoading(false);
+      }
+    };
+
+    loadBook();
 
     return () => {
-      if (epubBook) {
-        epubBook.destroy()
+      if (book) {
+        try {
+          book.destroy();
+        } catch (err) {
+          console.warn('Error destroying book:', err);
+        }
       }
       if (rendition) {
-        rendition.destroy()
-      }
-    }
-  }, [fileUrl])
-
-  // Setup rendition
-  useEffect(() => {
-    if (book && viewerRef.current) {
-      // Map pageLayout setting to epub.js spread option
-      const getSpreadOption = (layout: string) => {
-        switch (layout) {
-          case "single":
-            return "none"
-          case "double":
-            return "always"
-          case "auto":
-          default:
-            return "auto"
-        }
-      }
-
-      // Clear the viewer first
-      viewerRef.current.innerHTML = ""
-
-      const spreadOption = getSpreadOption(settings.pageLayout)
-      console.log("Creating rendition with layout:", settings.pageLayout, "spread:", spreadOption)
-
-      const newRendition = book.renderTo(viewerRef.current, {
-        width: "100%",
-        height: "100%",
-        flow: "paginated",
-        spread: spreadOption,
-        minSpreadWidth: 800, // Minimum width for two-page spread
-      })
-
-      // Apply reading settings
-      applyBionicReading(settings.bionicReading.enabled, settings.bionicReading.intensity)
-      applySettings(newRendition, settings)
-
-      // For two-page layout, we might need to force it after creation
-      if (settings.pageLayout === "double") {
-        console.log("Forcing two-page layout")
         try {
-          newRendition.spread("always")
+          rendition.destroy();
         } catch (err) {
-          console.warn("Could not force two-page layout:", err)
+          console.warn('Error destroying rendition:', err);
         }
       }
-
-      newRendition
-        .display(currentLocation?.start?.cfi || undefined)
-        .then(() => {
-          setIsLoading(false)
-          setIsChangingLayout(false)
-          
-          console.log("Rendition displayed successfully with spread:", spreadOption)
-
-          // Force apply themes after display
-          applySettings(newRendition, settings)
-          
-          // Additional CSS injection to ensure text is visible
-          setTimeout(() => {
-            try {
-              const iframe = viewerRef.current?.querySelector("iframe")
-              if (iframe && iframe.contentDocument) {
-                const doc = iframe.contentDocument
-                
-                // Create or update style element for text visibility
-                let styleEl = doc.getElementById('force-text-visibility')
-                if (!styleEl) {
-                  styleEl = doc.createElement('style')
-                  styleEl.id = 'force-text-visibility'
-                  doc.head.appendChild(styleEl)
-                }
-                
-                const textColor = settings.theme === "dark" ? "#e0e0e0" : settings.theme === "sepia" ? "#5c4b37" : "#000000"
-                const bgColor = settings.theme === "dark" ? "#1a1a1a" : settings.theme === "sepia" ? "#f4f1ea" : "#ffffff"
-                
-                styleEl.textContent = `
-                  * {
-                    color: ${textColor} !important;
-                  }
-                  body {
-                    background-color: ${bgColor} !important;
-                    color: ${textColor} !important;
-                  }
-                  p, div, span, a, li, td, th {
-                    color: ${textColor} !important;
-                  }
-                  h1, h2, h3, h4, h5, h6 {
-                    color: ${textColor} !important;
-                  }
-                `
-                
-                console.log("Injected CSS for text visibility with color:", textColor)
-              }
-            } catch (err) {
-              console.warn("Could not inject CSS for text visibility:", err)
-            }
-          }, 500)
-
-          // Generate locations for progress tracking after book is displayed
-          if (book.locations && !book.locations.length()) {
-            book.locations.generate(1024).catch((err) => {
-              console.warn("Could not generate locations for progress tracking:", err)
-            })
-          }
-
-          // Ensure the iframe content doesn't block our click events
-          const iframe = viewerRef.current?.querySelector("iframe")
-          if (iframe) {
-            iframe.style.pointerEvents = "none"
-            console.log("Set iframe pointer-events to none")
-          }
-
-          // Additional check for two-page layout
-          if (settings.pageLayout === "double") {
-            setTimeout(() => {
-              try {
-                newRendition.spread("always")
-                console.log("Applied two-page layout after display")
-              } catch (err) {
-                console.warn("Could not apply two-page layout after display:", err)
-              }
-            }, 500)
-          }
-        })
-        .catch((err) => {
-          console.error("Error displaying EPUB:", err)
-          setError("Failed to display EPUB file.")
-          setIsLoading(false)
-          setIsChangingLayout(false)
-        })
-
-      // Track reading progress with better error handling
-      newRendition.on("locationChanged", (location: any) => {
-        setCurrentLocation(location)
-        console.log("Location changed:", location) // Debug log
-
-        // Update page indicator for debugging
-        if (location?.start?.cfi) {
-          setCurrentPage(location.start.cfi.substring(0, 20) + "...")
-        }
-
-        try {
-          if (book.locations && book.locations.length() > 0 && location?.start?.cfi) {
-            const progressPercent = book.locations.percentageFromCfi(location.start.cfi)
-            if (typeof progressPercent === "number" && !isNaN(progressPercent)) {
-              setProgress(progressPercent * 100)
-            }
-          }
-        } catch (err) {
-          console.warn("Error calculating reading progress:", err)
-          // Don't show error to user, just log it
-        }
-      })
-
-      // Handle rendition errors
-      newRendition.on("error", (err: any) => {
-        console.error("Rendition error:", err)
-      })
-
-      setRendition(newRendition)
-
-      // Cleanup function
-      return () => {
-        if (newRendition) {
-          newRendition.destroy()
-        }
+      // Clear any pending progress updates
+      if (updateProgressTimeoutRef.current) {
+        clearTimeout(updateProgressTimeoutRef.current);
       }
-    }
-  }, [book, settings.pageLayout]) // Add pageLayout back to dependencies
+    };
+  }, [fileUrl]);
 
-  // Show loading state when layout changes
-  useEffect(() => {
-    if (rendition) {
-      setIsChangingLayout(true)
-      // The loading state will be cleared in the rendition display promise
-    }
-  }, [settings.pageLayout])
+  // Location change handler - SIMPLIFIED AND CONSISTENT
+  const handleLocationChanged = useCallback((location: any) => {
+      if (!book || !location || isRestoringRef.current) {
+      return;
+      }
 
-  // Bionic Reading functionality
-  const applyBionicReading = useCallback((enabled: boolean, intensity: "low" | "medium" | "high") => {
-    if (!enabled || !rendition) return
+    console.log('Location changed:', location);
+    setCurrentLocation(location);
+    currentLocationRef.current = location;
 
-    setTimeout(() => {
       try {
-        const iframe = viewerRef.current?.querySelector("iframe")
-        if (iframe && iframe.contentDocument) {
-          const doc = iframe.contentDocument
-          const textElements = doc.querySelectorAll('p, div, span, h1, h2, h3, h4, h5, h6')
-          
-          // Define how much of each word to bold based on intensity
-          const getFixationLength = (wordLength: number): number => {
-            const ratios = {
-              low: 0.3,    // 30% of word
-              medium: 0.5, // 50% of word  
-              high: 0.7    // 70% of word
-            }
-            
-            const ratio = ratios[intensity]
-            
-            if (wordLength <= 2) return 1
-            if (wordLength <= 4) return Math.ceil(wordLength * ratio)
-            return Math.ceil(wordLength * ratio)
+      // Pure character-based percentage using epub.js
+      let progressPercentage = 0;
+        if (book.locations && location.start && location.start.cfi) {
+          try {
+          const frac = book.locations.percentageFromCfi(location.start.cfi);
+          if (typeof frac === 'number') progressPercentage = frac * 100;
+          } catch (err) {
+          console.warn('percentageFromCfi failed:', err);
           }
+      } else if (typeof location.percentage === 'number') {
+        progressPercentage = location.percentage * 100;
+        }
 
-          textElements.forEach((element: Element) => {
-            const originalText = element.textContent || ""
-            if (originalText.trim()) {
-              const bionicText = originalText.replace(/\b\w+\b/g, (word: string) => {
-                if (word.length <= 1) return word
-                
-                const fixationLength = getFixationLength(word.length)
-                const boldPart = word.substring(0, fixationLength)
-                const normalPart = word.substring(fixationLength)
-                
-                return `<strong>${boldPart}</strong>${normalPart}`
-              })
-              element.innerHTML = bionicText
-            }
-          })
-          
-          console.log("Applied bionic reading with intensity:", intensity)
+      console.log(`Progress (char based): ${progressPercentage.toFixed(2)}%`);
+
+      setProgress(progressPercentage);
+
+        if (progressPercentage > 0) {
+        debouncedUpdateProgress(progressPercentage);
         }
       } catch (err) {
-        console.warn("Could not apply bionic reading:", err)
+      console.warn('Error calculating location:', err);
       }
-    }, 1000) // Apply after content is loaded
-  }, [rendition])
+  }, [book, debouncedUpdateProgress]);
+
+  // Apply bionic reading to text
+  const applyBionicReading = useCallback((enabled: boolean, intensity: string | number) => {
+    if (!viewerRef.current) return
+
+    const iframe = viewerRef.current.querySelector("iframe")
+    if (!iframe || !iframe.contentDocument) return
+
+                const doc = iframe.contentDocument
+    const textNodes: Text[] = []
+
+    // Find all text nodes
+    const walk = document.createTreeWalker(
+      doc.body,
+      NodeFilter.SHOW_TEXT,
+      null
+    )
+
+    let node: Text | null
+    while ((node = walk.nextNode() as Text)) {
+      if (node.textContent && node.textContent.trim().length > 0) {
+        textNodes.push(node)
+                }
+    }
+
+    // Convert intensity to number if it's a string
+    const intensityValue = typeof intensity === 'string' 
+      ? intensity === 'low' ? 30 
+      : intensity === 'medium' ? 50 
+      : intensity === 'high' ? 70 
+      : 50 
+      : intensity
+
+    // Apply bionic reading
+    textNodes.forEach((textNode) => {
+      const text = textNode.textContent || ""
+      if (text.trim().length === 0) return
+
+      // Check if already processed
+      if (textNode.parentElement && textNode.parentElement.dataset.bionicApplied === 'true') {
+        return;
+      }
+
+      const words = text.split(/(\s+)/)
+      const bionicText = words.map((word) => {
+        if (word.trim().length === 0) return word
+
+        const halfLength = Math.ceil(word.length * (intensityValue / 100))
+        return `<strong>${word.substring(0, halfLength)}</strong>${word.substring(halfLength)}`
+      }).join("")
+
+      const span = doc.createElement("span")
+      span.innerHTML = bionicText
+      span.dataset.bionicApplied = 'true';
+      textNode.parentNode?.replaceChild(span, textNode)
+    })
+  }, [])
 
   // Apply reading settings to rendition
-  const applySettings = useCallback((rendition: Rendition, settings: ReadingSettings) => {
+  const applySettings = useCallback((renditionToUpdate: Rendition, currentSettings: ReadingSettings) => {
+    if (!renditionToUpdate) return;
     try {
-      // Apply theme with more comprehensive styling
-      const themes = {
-        light: { 
-          body: { 
-            background: "#ffffff !important", 
-            color: "#000000 !important",
-            "line-height": `${settings.lineHeight / 100} !important`,
-            "text-align": `${settings.textAlign} !important`
-          },
-          p: { 
-            color: "#000000 !important",
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important`
-          },
-          div: { 
-            color: "#000000 !important",
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important`
-          },
-          span: { color: "#000000 !important" },
-          h1: { color: "#000000 !important" },
-          h2: { color: "#000000 !important" },
-          h3: { color: "#000000 !important" },
-          h4: { color: "#000000 !important" },
-          h5: { color: "#000000 !important" },
-          h6: { color: "#000000 !important" },
-          // Bionic reading styles
-          strong: { 
-            "font-weight": "bold !important",
-            color: "#000000 !important"
-          }
-        },
-        dark: { 
-          body: { 
-            background: "#1a1a1a !important", 
-            color: "#e0e0e0 !important",
-            "line-height": `${settings.lineHeight / 100} !important`,
-            "text-align": `${settings.textAlign} !important`
-          },
-          p: { 
-            color: "#e0e0e0 !important",
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important`
-          },
-          div: { 
-            color: "#e0e0e0 !important",
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important`
-          },
-          span: { color: "#e0e0e0 !important" },
-          h1: { color: "#ffffff !important" },
-          h2: { color: "#ffffff !important" },
-          h3: { color: "#ffffff !important" },
-          h4: { color: "#ffffff !important" },
-          h5: { color: "#ffffff !important" },
-          h6: { color: "#ffffff !important" },
-          // Bionic reading styles
-          strong: { 
-            "font-weight": "bold !important",
-            color: "#ffffff !important"
-          }
-        },
-        sepia: { 
-          body: { 
-            background: "#f4f1ea !important", 
-            color: "#5c4b37 !important",
-            "line-height": `${settings.lineHeight / 100} !important`,
-            "text-align": `${settings.textAlign} !important`
-          },
-          p: { 
-            color: "#5c4b37 !important",
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important`
-          },
-          div: { 
-            color: "#5c4b37 !important",
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important`
-          },
-          span: { color: "#5c4b37 !important" },
-          h1: { color: "#4a3f2a !important" },
-          h2: { color: "#4a3f2a !important" },
-          h3: { color: "#4a3f2a !important" },
-          h4: { color: "#4a3f2a !important" },
-          h5: { color: "#4a3f2a !important" },
-          h6: { color: "#4a3f2a !important" },
-          // Bionic reading styles
-          strong: { 
-            "font-weight": "bold !important",
-            color: "#4a3f2a !important"
-          }
-        },
-      }
+      renditionToUpdate.themes.select(currentSettings.theme)
+      renditionToUpdate.themes.fontSize(`${currentSettings.fontSize}%`)
 
-      // Register themes
-      rendition.themes.register("light", themes.light)
-      rendition.themes.register("dark", themes.dark)
-      rendition.themes.register("sepia", themes.sepia)
-      
-      // Select the current theme
-      rendition.themes.select(settings.theme)
-      
-      // Apply font settings
-      rendition.themes.fontSize(`${settings.fontSize}%`)
-      rendition.themes.font(settings.fontFamily)
+      // Only apply font-family for safe generic families to avoid epub.js errors
+      const safeFonts = ["serif", "sans-serif", "monospace"];
+      if (safeFonts.includes(currentSettings.fontFamily.toLowerCase())) {
+        renditionToUpdate.themes.font(currentSettings.fontFamily);
+      }
       
       // Apply bionic reading if enabled
-      applyBionicReading(settings.bionicReading.enabled, settings.bionicReading.intensity)
+      if (currentSettings.bionicReading.enabled) {
+        applyBionicReading(true, currentSettings.bionicReading.intensity)
+      }
       
-      // Force theme application with a slight delay
-      setTimeout(() => {
-        rendition.themes.select(settings.theme)
-        console.log(`Applied theme: ${settings.theme}`)
-      }, 100)
+      console.log(`Applied theme: ${currentSettings.theme}, Font: ${currentSettings.fontFamily}, Size: ${currentSettings.fontSize}%`)
       
     } catch (error) {
       console.error("Error applying settings:", error)
     }
   }, [applyBionicReading])
 
-  // Update settings
+  // Setup rendition - CLEANED UP
   useEffect(() => {
-    if (rendition) {
-      applySettings(rendition, settings)
+    if (!book || !viewerRef.current || !totalPages) return;
+
+    let cancelled = false;
+
+    const setup = async () => {
+      await book.ready;
+
+      // Wait for book to be fully loaded with multiple attempts
+      let attempts = 0;
+      const maxAttempts = 10;
       
-      // Also re-inject CSS for text visibility when settings change
-      setTimeout(() => {
+      while (attempts < maxAttempts) {
         try {
-          const iframe = viewerRef.current?.querySelector("iframe")
-          if (iframe && iframe.contentDocument) {
-            const doc = iframe.contentDocument
-            
-            let styleEl = doc.getElementById('force-text-visibility')
-            if (!styleEl) {
-              styleEl = doc.createElement('style')
-              styleEl.id = 'force-text-visibility'
-              doc.head.appendChild(styleEl)
-            }
-            
-            const textColor = settings.theme === "dark" ? "#e0e0e0" : settings.theme === "sepia" ? "#5c4b37" : "#000000"
-            const bgColor = settings.theme === "dark" ? "#1a1a1a" : settings.theme === "sepia" ? "#f4f1ea" : "#ffffff"
-            
-            styleEl.textContent = `
-              * {
-                color: ${textColor} !important;
-              }
-              body {
-                background-color: ${bgColor} !important;
-                color: ${textColor} !important;
-              }
-              p, div, span, a, li, td, th {
-                color: ${textColor} !important;
-              }
-              h1, h2, h3, h4, h5, h6 {
-                color: ${textColor} !important;
-              }
-            `
-            
-            console.log("Re-injected CSS for theme change with color:", textColor)
+          // Wait for all critical components
+          await Promise.all([
+            (book as any).loaded?.packaging,
+            (book as any).loaded?.spine,
+            (book as any).loaded?.manifest
+          ].filter(Boolean));
+          
+          // Check if package is available
+          if ((book as any).package && (book as any).spine && (book as any).spine.length > 0) {
+            console.log('Book fully loaded, package available');
+            break;
+          }
+          
+          console.log(`Book not fully ready, attempt ${attempts + 1}/${maxAttempts}`);
+          await new Promise(resolve => setTimeout(resolve, 200));
+          attempts++;
+          
+        } catch (err) {
+          console.warn(`Book loading attempt ${attempts + 1} failed:`, err);
+          await new Promise(resolve => setTimeout(resolve, 200));
+          attempts++;
+        }
+      }
+
+      if (attempts >= maxAttempts) {
+        throw new Error('Book failed to load completely after multiple attempts');
+      }
+
+      if (cancelled) return;
+
+      console.log('Setting up rendition...');
+
+      // Clean up previous rendition
+      if (rendition) {
+        rendition.destroy();
+        setRendition(null);
+      }
+
+      const getSpreadOption = (layout: string) => {
+        switch (layout) {
+          case "single": return "none";
+          case "double": return "always";
+          case "auto": default: return "auto";
+        }
+      };
+
+      if (!viewerRef.current) return;
+      viewerRef.current.innerHTML = "";
+      const spreadOption = getSpreadOption(settings.pageLayout);
+      
+      let newRendition;
+      try {
+        newRendition = book.renderTo(viewerRef.current, {
+          width: "100%",
+          height: "100%",
+          flow: "paginated",
+          spread: spreadOption,
+          minSpreadWidth: 800,
+        });
+      } catch (err) {
+        console.error('Failed to create rendition:', err);
+        throw new Error('Failed to create book rendition');
+      }
+
+      setRendition(newRendition);
+
+      // Register themes
+      const themes = {
+        light: {
+          body: {
+            background: "#ffffff !important",
+            color: "#000000 !important", 
+            "line-height": `${settings.lineHeight / 100} !important`,
+            "text-align": `${settings.textAlign} !important` 
+          },
+          p: {
+            color: "#000000 !important", 
+            "text-align": `${settings.textAlign} !important`,
+            "line-height": `${settings.lineHeight / 100} !important` 
+          },
+          div: {
+            color: "#000000 !important", 
+            "text-align": `${settings.textAlign} !important`,
+            "line-height": `${settings.lineHeight / 100} !important` 
+          },
+          span: { color: "#000000 !important" }, 
+          h1: { color: "#000000 !important" }, 
+          h2: { color: "#000000 !important" }, 
+          h3: { color: "#000000 !important" }, 
+          h4: { color: "#000000 !important" }, 
+          h5: { color: "#000000 !important" }, 
+          h6: { color: "#000000 !important" }, 
+          strong: { "font-weight": "bold !important", color: "#000000 !important"} 
+        },
+        dark: {
+          body: {
+            background: "#1a1a1a !important", 
+            color: "#e0e0e0 !important", 
+            "line-height": `${settings.lineHeight / 100} !important`,
+            "text-align": `${settings.textAlign} !important` 
+          },
+          p: {
+            color: "#e0e0e0 !important", 
+            "text-align": `${settings.textAlign} !important`,
+            "line-height": `${settings.lineHeight / 100} !important` 
+          },
+          div: {
+            color: "#e0e0e0 !important", 
+            "text-align": `${settings.textAlign} !important`,
+            "line-height": `${settings.lineHeight / 100} !important` 
+          },
+          span: { color: "#e0e0e0 !important" }, 
+          h1: { color: "#ffffff !important" }, 
+          h2: { color: "#ffffff !important" }, 
+          h3: { color: "#ffffff !important" }, 
+          h4: { color: "#ffffff !important" }, 
+          h5: { color: "#ffffff !important" }, 
+          h6: { color: "#ffffff !important" }, 
+          strong: { "font-weight": "bold !important", color: "#ffffff !important"} 
+        },
+        sepia: {
+          body: {
+            background: "#f4f1ea !important", 
+            color: "#5c4b37 !important", 
+            "line-height": `${settings.lineHeight / 100} !important`,
+            "text-align": `${settings.textAlign} !important` 
+          },
+          p: {
+            color: "#5c4b37 !important", 
+            "text-align": `${settings.textAlign} !important`,
+            "line-height": `${settings.lineHeight / 100} !important` 
+          },
+          div: {
+            color: "#5c4b37 !important", 
+            "text-align": `${settings.textAlign} !important`,
+            "line-height": `${settings.lineHeight / 100} !important` 
+          },
+          span: { color: "#5c4b37 !important" }, 
+          h1: { color: "#4a3f2a !important" }, 
+          h2: { color: "#4a3f2a !important" }, 
+          h3: { color: "#4a3f2a !important" }, 
+          h4: { color: "#4a3f2a !important" }, 
+          h5: { color: "#4a3f2a !important" }, 
+          h6: { color: "#4a3f2a !important" }, 
+          strong: { "font-weight": "bold !important", color: "#4a3f2a !important"} 
+        },
+      };
+
+      newRendition.themes.register("light", themes.light);
+      newRendition.themes.register("dark", themes.dark);
+      newRendition.themes.register("sepia", themes.sepia);
+
+      // Apply initial settings
+      applySettings(newRendition, settings);
+
+      // Restore position if available
+      isRestoringRef.current = true;
+      let displaySuccess = false;
+      
+      // Try to restore from saved location first
+      if (currentLocationRef.current && currentLocationRef.current.start) {
+        try {
+          const savedCfi = currentLocationRef.current.start.cfi;
+          console.log('Restoring to saved location:', savedCfi);
+          await newRendition.display(savedCfi);
+          displaySuccess = true;
+        } catch (err) {
+          console.warn('Failed to restore saved location:', err);
+        }
+      }
+
+      // Try to restore from context progress if saved location failed
+      if (!displaySuccess && contextProgress > 0) {
+        try {
+          const progressDecimal = contextProgress / 100;
+          const cfiFromProgress = book.locations.cfiFromPercentage(progressDecimal);
+          if (cfiFromProgress) {
+            console.log('Restoring to context progress:', contextProgress + '%', cfiFromProgress);
+            await newRendition.display(cfiFromProgress);
+            displaySuccess = true;
           }
         } catch (err) {
-          console.warn("Could not re-inject CSS for theme change:", err)
+          console.warn('Failed to restore from context progress:', err);
         }
-      }, 200)
-    }
-  }, [settings, rendition, applySettings])
+      }
 
-  const nextPage = () => {
-    if (rendition) {
-      console.log("Next page called") // Debug log
-      rendition
-        .next()
-        .then(() => {
-          console.log("Next page successful")
-        })
-        .catch((err) => {
-          console.error("Error going to next page:", err)
-        })
-    } else {
-      console.log("Rendition not ready for next page")
-    }
-  }
+      // Generic safeguard: if display() keeps failing due to internal epub.js errors, fallback to beginning
+      if (!displaySuccess) {
+        try {
+          await newRendition.display();
+        } catch (fallbackErr) {
+          console.error('Fallback display failed:', fallbackErr);
+        }
+      }
 
-  const prevPage = () => {
-    if (rendition) {
-      console.log("Previous page called") // Debug log
-      rendition
-        .prev()
-        .then(() => {
-          console.log("Previous page successful")
-        })
-        .catch((err) => {
-          console.error("Error going to previous page:", err)
-        })
-    } else {
-      console.log("Rendition not ready for previous page")
-    }
-  }
+      setTimeout(() => {
+        isRestoringRef.current = false;
+      }, 1000);
 
-  const goToChapter = (href: string) => {
+      setIsLoading(false);
+
+      // Register location change handler
+      newRendition.on('locationChanged', handleLocationChanged);
+
+      // Clean up handler on destroy
+      newRendition.on('destroy', () => {
+        newRendition.off('locationChanged', handleLocationChanged);
+      });
+
+      console.log('Rendition setup complete');
+    };
+
+    setup();
+
+    return () => {
+      cancelled = true;
+      if (rendition) {
+        try {
+          rendition.destroy();
+        } catch (err) {
+          console.warn('Error destroying rendition:', err);
+        }
+      }
+    };
+  }, [book, totalPages, settings.pageLayout]);
+
+  // One-time restore from contextProgress after rendition exists
+  useEffect(() => {
+    if (restoredFromContextRef.current) return;
+    if (!rendition || !book || contextProgress <= 0) return;
+      try {
+      const cfi = book.locations.cfiFromPercentage(contextProgress / 100);
+        if (cfi) {
+        console.log('Restoring from contextProgress effect:', contextProgress, '% =>', cfi);
+        rendition.display(cfi);
+        restoredFromContextRef.current = true;
+        }
+      } catch (err) {
+      console.warn('contextProgress restore failed:', err);
+      }
+  }, [contextProgress, rendition, book]);
+
+  // Apply settings to existing rendition when settings (except pageLayout) change
+  useEffect(() => {
+    if (!rendition) return;
+    applySettings(rendition, settings);
+  }, [rendition, settings.theme, settings.fontSize, settings.fontFamily, settings.lineHeight, settings.textAlign, settings.bionicReading, applySettings]);
+
+  // Navigation functions - IMPROVED
+  const nextPage = useCallback(async () => {
+    if (!rendition) {
+      console.log("Rendition not ready for next page");
+      return;
+    }
+
+    try {
+      await rendition.next();
+      console.log("Next page -> success");
+    } catch (err) {
+      console.error("Error going to next page:", err);
+    }
+  }, [rendition]);
+
+  const prevPage = useCallback(async () => {
+    if (!rendition) {
+      console.log("Rendition not ready for previous page");
+      return;
+    }
+
+    try {
+      // Store current location before navigation
+      const currentLoc = rendition.currentLocation() as any;
+      const currentIndex = currentLoc?.start?.index;
+      
+      await rendition.prev();
+      
+      // Check if we moved to a different chapter/section
+      const newLoc = rendition.currentLocation() as any;
+      const newIndex = newLoc?.start?.index;
+      
+      // If we jumped to a different chapter, go to its end instead of beginning
+      if (currentIndex !== undefined && newIndex !== undefined && currentIndex !== newIndex) {
+        console.log(`Chapter boundary crossed: ${newIndex} -> ${currentIndex}, navigating to end of previous chapter`);
+        
+        // Get the section we just navigated to
+        const section = book?.spine.get(newIndex);
+        if (section && book?.locations) {
+          try {
+            // Find the last location in this section by getting the next section's start
+            const nextSection = book.spine.get(newIndex + 1);
+            if (nextSection) {
+              // Get CFI just before the next section starts
+              const nextSectionCfi = nextSection.cfiBase;
+              // Navigate to end of current section
+              const locations = book.locations;
+              const totalLocs = locations.length();
+              
+              // Find location index that corresponds to end of current section
+              for (let i = totalLocs - 1; i >= 0; i--) {
+                const locCfi = locations.cfiFromLocation(i);
+                try {
+                  const locSection = book.spine.get(locCfi);
+                  if (locSection && locSection.index === newIndex) {
+                    // This is the last location in our target section
+                    await rendition.display(locCfi);
+                    console.log("Navigated to end of previous chapter");
+                    break;
+                  }
+                } catch (e) {
+                  // Continue searching if this location doesn't work
+                  continue;
+                }
+              }
+            }
+          } catch (err) {
+            console.warn("Could not navigate to end of previous chapter:", err);
+            // Fall back to default behavior (already at beginning of previous chapter)
+          }
+        }
+      }
+      
+      console.log("Previous page -> success");
+    } catch (err) {
+      console.error("Error going to previous page:", err);
+    }
+  }, [rendition, book]);
+
+  // --- Seek bar handler ---
+  const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const newPercent = Number(e.target.value);
+    setProgress(newPercent);
+
+      if (book && rendition && book.locations && book.locations.length() > 0) {
+        try {
+        const cfi = book.locations.cfiFromPercentage(newPercent / 100);
+          if (cfi) {
+          rendition.display(cfi);
+          }
+        } catch (err) {
+        console.warn('Seek display failed:', err);
+        }
+      }
+
+      if (newPercent > 0) {
+      debouncedUpdateProgress(newPercent);
+      }
+  }, [book, rendition, debouncedUpdateProgress]);
+
+  // Helper to build tooltip text
+  const buildTooltip = useCallback((pct: number) => {
+    if (!book || !book.locations) return `${pct.toFixed(1)}%`;
+      try {
+      const cfi = book.locations.cfiFromPercentage(pct / 100);
+        if (cfi) {
+        const spineItem = (book.spine as any).get(cfi);
+          if (spineItem && spineItem.idref) {
+          const label = tocLabelMapRef.current[spineItem.idref];
+          if (label) return label;
+          }
+        }
+      } catch {}
+    return `${pct.toFixed(1)}%`;
+  }, [book]);
+
+  const handleSliderHover = useCallback((e: React.MouseEvent<HTMLInputElement>) => {
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    const pct = ((e.clientX - rect.left) / rect.width) * 100;
+    setSeekTooltip({ visible: true, text: buildTooltip(pct), x: e.clientX - rect.left });
+  }, [buildTooltip]);
+
+  const hideTooltip = () => setSeekTooltip(prev => ({ ...prev, visible: false }));
+
+  // Keyboard navigation
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (!rendition) return;
+
+    if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      prevPage();
+    } else if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") {
+      e.preventDefault();
+      nextPage();
+    } else if (e.key === "Escape") {
+      setShowChapters(false);
+      setShowSettings(false);
+      setShowSearch(false);
+    }
+  }, [rendition, nextPage, prevPage]);
+
+  useEffect(() => {
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
+
+  // Click navigation
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    handleFirstInteraction();
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const width = rect.width;
+
+    console.log(`Click at ${((x / width) * 100).toFixed(1)}%`);
+
+        if (x < width * 0.4) {
+      prevPage();
+        } else if (x > width * 0.6) {
+      nextPage();
+      }
+  }, [prevPage, nextPage]);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Element
+      if (showSettings && !target.closest('.settings-dropdown')) {
+        setShowSettings(false)
+      }
+      if (showSearch && !target.closest('.search-panel')) {
+        setShowSearch(false)
+      }
+    }
+
+    document.addEventListener("click", handleClickOutside)
+    return () => document.removeEventListener("click", handleClickOutside)
+  }, [showSettings, showSearch])
+
+  // Chapter navigation
+  const goToChapter = useCallback((href: string) => {
     if (rendition) {
       rendition.display(href)
       setShowChapters(false)
     }
-  }
+  }, [rendition])
 
   // Search functionality
   const performSearch = async (query: string) => {
@@ -592,75 +823,6 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
         })
       }
       
-      // Alternative approach: Search through spine using different method
-      if (results.length === 0) {
-        console.log("Trying alternative spine search")
-        try {
-          // Get all spine items
-          const spineItems = (book.spine as any).spineItems || (book.spine as any).items || []
-          console.log("Found spine items:", spineItems.length)
-          
-          for (let i = 0; i < Math.min(spineItems.length, 10) && results.length < 20; i++) {
-            const item = spineItems[i]
-            try {
-              // Try to get the document
-              const section = book.section(item.href)
-              if (section) {
-                const doc = await section.load(book.load.bind(book))
-                let textContent = ""
-                
-                // Try different ways to extract text
-                if ((doc as any).body) {
-                  textContent = (doc as any).body.textContent || (doc as any).body.innerText || ""
-                } else if (doc.documentElement) {
-                  textContent = doc.documentElement.textContent || (doc.documentElement as any).innerText || ""
-                } else {
-                  textContent = (doc as any).textContent || (doc as any).innerText || ""
-                }
-                
-                console.log(`Section ${i} text length:`, textContent.length)
-                
-                if (textContent && textContent.length > 0) {
-                  const lowerText = textContent.toLowerCase()
-                  const lowerQuery = query.toLowerCase()
-                  let searchIndex = 0
-                  
-                  while (searchIndex < lowerText.length && results.length < 20) {
-                    const foundIndex = lowerText.indexOf(lowerQuery, searchIndex)
-                    if (foundIndex === -1) break
-                    
-                    // Get context around the match
-                    const start = Math.max(0, foundIndex - 50)
-                    const end = Math.min(textContent.length, foundIndex + query.length + 50)
-                    const context = textContent.substring(start, end).trim()
-                    
-                    // Clean up the context
-                    const cleanContext = context.replace(/\s+/g, ' ')
-                    
-                    if (cleanContext.length > query.length) {
-                      results.push({
-                        excerpt: cleanContext,
-                        href: item.href,
-                        chapter: item.title || `Chapter ${i + 1}`,
-                        index: results.length
-                      })
-                      
-                      console.log("Found match:", cleanContext.substring(0, 100))
-                    }
-                    
-                    searchIndex = foundIndex + query.length
-                  }
-                }
-              }
-            } catch (itemError) {
-              console.warn(`Error searching item ${i}:`, itemError)
-            }
-          }
-        } catch (spineError) {
-          console.warn("Spine search failed:", spineError)
-        }
-      }
-      
       console.log("Search completed. Found", results.length, "results")
       setSearchResults(results)
       setCurrentSearchIndex(results.length > 0 ? 0 : -1)
@@ -702,92 +864,6 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
     setShowSearch(false)
   }
 
-  const handleClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-
-    handleFirstInteraction() // Hide hint on first click
-
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const width = rect.width
-
-    console.log(`Click detected at x: ${x}, width: ${width}, percentage: ${((x / width) * 100).toFixed(1)}%`)
-
-    // More generous click areas for navigation
-    if (x < width * 0.4) {
-      prevPage()
-      console.log("Previous page clicked") // Debug log
-    } else if (x > width * 0.6) {
-      nextPage()
-      console.log("Next page clicked") // Debug log
-    } else {
-      // Center click - could add other functionality here if needed
-      console.log("Center clicked - controls are always visible now") // Debug log
-    }
-  }
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    console.log("Key pressed:", e.key) // Debug log
-    if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-      e.preventDefault()
-      prevPage()
-    } else if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") {
-      e.preventDefault()
-      nextPage()
-    } else if (e.key === "Escape") {
-      // Close panels but keep main controls visible
-      setShowChapters(false)
-      setShowSettings(false)
-    }
-  }
-
-  // Add keyboard navigation
-  useEffect(() => {
-    document.addEventListener("keydown", handleKeyDown)
-    return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [rendition, showControls]) // Add showControls to dependencies
-
-  // Add a fallback click listener to the entire reading container
-  useEffect(() => {
-    const handleContainerClick = (e: MouseEvent) => {
-      if (viewerRef.current && viewerRef.current.contains(e.target as Node)) {
-        console.log("Container click detected")
-        // Convert to React event-like object
-        const rect = viewerRef.current.getBoundingClientRect()
-        const x = e.clientX - rect.left
-        const width = rect.width
-
-        if (x < width * 0.4) {
-          prevPage()
-          console.log("Previous page clicked (fallback)")
-        } else if (x > width * 0.6) {
-          nextPage()
-          console.log("Next page clicked (fallback)")
-        }
-      }
-    }
-
-    document.addEventListener("click", handleContainerClick)
-    return () => document.removeEventListener("click", handleContainerClick)
-  }, [rendition])
-
-  // Close settings dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Element
-      if (showSettings && !target.closest('.settings-dropdown')) {
-        setShowSettings(false)
-      }
-      if (showSearch && !target.closest('.search-panel')) {
-        setShowSearch(false)
-      }
-    }
-
-    document.addEventListener("click", handleClickOutside)
-    return () => document.removeEventListener("click", handleClickOutside)
-  }, [showSettings, showSearch])
-
   if (error) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-100">
@@ -826,7 +902,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
         </div>
       )}
 
-      {/* Top Bar - Google Play Books Style */}
+      {/* Top Bar */}
       <div className="absolute top-0 left-0 right-0 z-40">
         <div
           className={`px-6 py-4 border-b ${
@@ -841,30 +917,15 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
                 onClick={() => window.history.back()}
                 className={`p-2 rounded-full transition-colors ${
                   settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
-                }`}
-              >
+                  }`}
+                >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
-              <h1 className={`text-xl font-normal ${settings.theme === "dark" ? "text-white" : "text-gray-900"}`}>{bookTitle}</h1>
+              <h1 className={`text-xl font-normal truncate max-w-[60vw] ${settings.theme === "dark" ? "text-white" : "text-gray-900"}`}>{bookTitle}</h1>
             </div>
             <div className="flex items-center space-x-1">
-              <button
-                className={`p-2 rounded-full transition-colors ${
-                  settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
-                }`}
-                title="Fullscreen"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
-                  />
-                </svg>
-              </button>
               <button
                 className={`p-2 rounded-full transition-colors ${
                   settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
@@ -899,24 +960,13 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
               </button>
               <button
                 onClick={() => setShowChapters(!showChapters)}
-                className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                className={`p-2 rounded-full transition-colors ${
+                  settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
+                }`}
                 title="Table of contents"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-              </button>
-              <button
-                className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                title="More options"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
-                  />
                 </svg>
               </button>
             </div>
@@ -942,17 +992,19 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
         }}
       />
 
-      {/* Progress Bar - Google Play Books Style */}
+      {/* Progress Bar */}
       <div className="absolute bottom-0 left-0 right-0 z-40">
         <div
-          className={`px-6 py-4 ${
+          className={`px-4 py-2 ${
             settings.theme === "dark" ? "bg-gray-900 border-gray-700" : "bg-white border-gray-200"
           } border-t`}
         >
-          <div className="flex items-center justify-center space-x-6 max-w-6xl mx-auto">
+          <div className="flex items-center justify-center space-x-4 max-w-6xl mx-auto">
             <button
               onClick={prevPage}
-              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              className={`p-2 rounded-full transition-colors ${
+                settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
+              }`}
               disabled={!rendition}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -960,26 +1012,49 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
               </svg>
             </button>
 
-            <div className="flex-1 max-w-2xl">
+            <div className="flex-1 mx-4">
               <div className="relative">
-                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 shadow-inner">
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 shadow-inner">
                   <div
-                    className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all duration-500 ease-out shadow-sm"
+                    className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-500 ease-out shadow-sm"
                     style={{ width: `${progress}%` }}
                   />
+                  {/* Range slider overlay */}
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={progress}
+                    onChange={handleSeek}
+                    onMouseMove={handleSliderHover}
+                    onMouseEnter={handleSliderHover}
+                    onMouseLeave={hideTooltip}
+                    className="absolute inset-0 w-full h-3 opacity-0 cursor-pointer"
+                  />
+
+                  {/* Tooltip */}
+                  {seekTooltip.visible && (
+                    <div
+                      className="pointer-events-none absolute -top-8 bg-gray-800 text-white text-xs px-2 py-1 rounded shadow"
+                      style={{ left: `${seekTooltip.x}px`, transform: 'translateX(-50%)' }}
+                    >
+                      {seekTooltip.text}
                 </div>
-                <div className="flex justify-between items-center mt-3">
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">{Math.round(progress)}%</span>
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                    {currentLocation ? `${Math.round(progress)}` : "0"} - {Math.round(progress + 1)} / 171
-                  </span>
+                    )}
+                  </div>
                 </div>
               </div>
+
+            <div className="text-sm font-medium text-gray-600 dark:text-gray-400 min-w-[48px] text-right">
+              {progress > 0 ? `${Math.round(progress)}%` : ''}
             </div>
 
             <button
               onClick={nextPage}
-              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              className={`p-2 rounded-full transition-colors ${
+                settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
+              }`}
               disabled={!rendition}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -998,7 +1073,8 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
             <div className="text-xs mt-1 opacity-75">Or use ← arrow key</div>
           </div>
           <div className="absolute top-1/2 right-8 transform -translate-y-1/2 bg-black bg-opacity-80 text-white px-4 py-3 rounded-lg text-sm max-w-xs pointer-events-none">
-            Click right 40% of screen to go forward →<div className="text-xs mt-1 opacity-75">Or use → arrow key</div>
+            Click right 40% of screen to go forward →
+            <div className="text-xs mt-1 opacity-75">Or use → arrow key</div>
           </div>
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black bg-opacity-80 text-white px-4 py-3 rounded-lg text-sm text-center max-w-xs pointer-events-none">
             Use the controls above and below
@@ -1009,12 +1085,16 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
 
       {/* Chapters Sidebar */}
       {showChapters && (
-        <div className="absolute inset-0 z-50 flex">
-          <div className="flex-1 bg-black bg-opacity-50" onClick={() => setShowChapters(false)} />
+        <div className="absolute inset-0 z-50">
+          {/* Backdrop */}
           <div
-            className={`w-80 h-full ${
-              settings.theme === "dark" ? "bg-gray-800 text-white" : "bg-white text-gray-900"
-            } shadow-xl overflow-y-auto`}
+            className="absolute inset-0 bg-black/25 backdrop-blur-sm transition-colors"
+            onClick={() => setShowChapters(false)}
+          />
+          <div
+            className={`chapters-panel absolute top-20 right-6 w-96 max-h-[80vh] rounded-2xl shadow-2xl border animate-in slide-in-from-top-2 duration-200 overflow-y-auto ${
+              settings.theme === "dark" ? "bg-gray-800 text-white border-gray-700" : "bg-white text-gray-900 border-gray-100"
+            }`}
           >
             <div className="p-4 border-b border-gray-200 dark:border-gray-700">
               <h2 className="text-lg font-semibold">Chapters</h2>
@@ -1034,7 +1114,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
         </div>
       )}
 
-      {/* Settings Dropdown - Moved outside of button */}
+      {/* Settings Dropdown */}
       {showSettings && (
         <div className={`settings-dropdown absolute top-20 right-6 w-80 rounded-2xl shadow-2xl border z-50 animate-in slide-in-from-top-2 duration-200 ${
           settings.theme === "dark" 
@@ -1067,8 +1147,8 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
                 }))}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                   settings.theme === "dark" ? "bg-gray-900" : "bg-gray-200"
-                }`}
-              >
+                    }`}
+                  >
                 <span
                   className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                     settings.theme === "dark" ? "translate-x-6" : "translate-x-1"
@@ -1327,7 +1407,6 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
                 onChange={(e) => {
                   const newQuery = e.target.value
                   setSearchQuery(newQuery)
-                  console.log("Search query changed to:", newQuery)
                   if (newQuery.trim()) {
                     performSearch(newQuery)
                   } else {
@@ -1337,7 +1416,6 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({ fileUrl, bookTitle = "Book" }) 
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && searchQuery.trim()) {
-                    console.log("Enter pressed, performing search for:", searchQuery)
                     performSearch(searchQuery)
                   }
                 }}

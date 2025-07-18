@@ -23,7 +23,7 @@ export function LoginForm() {
 
     try {
       await signIn(formData.email, formData.password);
-      router.push('/library');
+      router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign in');
     } finally {
