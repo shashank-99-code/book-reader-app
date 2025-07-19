@@ -81,9 +81,8 @@ export async function POST(
 
     console.log(`Q&A: Using ${chunks.length} chunks for ${validProgressPercentage}% progress in book ${bookId}`);
 
-    // Process chunks for AI context (limit to reasonable number for Q&A performance)
-    const maxContextChunks = Math.min(chunks.length, 50); // Reasonable limit for Q&A context
-    const contextChunks = processChunksForContext(chunks, maxContextChunks);
+    // Use ALL chunks up to reading progress - no artificial limits for Llama 4 Scout
+    const contextChunks = processChunksForContext(chunks, chunks.length);
 
     // Get additional context if requested
     let additionalContext = '';
