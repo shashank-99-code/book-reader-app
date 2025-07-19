@@ -1,167 +1,268 @@
-# AI Features Setup Guide
+# AI Features Setup & Usage Guide
 
 ## Overview
 
-This book reader app now includes AI-powered summarization and Q&A features using Together.ai's Llama 4 Scout model. These features provide:
-
-- **Progress-aware summarization**: Get AI summaries of your reading progress up to any point
-- **Book Q&A**: Ask questions about the book content and get intelligent answers
-- **Multi-format support**: Works with both PDF and EPUB files
-- **Automatic processing**: Books are automatically processed for AI features upon upload
-- **Caching**: Summaries are cached for performance and to reduce API calls
-
-## Setup Instructions
-
-### 1. Environment Variables
-
-Add the following environment variable to your `.env.local` file:
-
-```bash
-# Together.ai Configuration
-TOGETHER_AI_API_KEY=your_together_ai_api_key_here
-
-# Existing Supabase Configuration (if not already set)
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url_here
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
-```
-
-### 2. Get Together.ai API Key
-
-1. Visit [Together.ai](https://together.ai)
-2. Sign up for an account
-3. Navigate to the API section
-4. Generate a new API key
-5. Copy the key to your `.env.local` file
-
-### 3. Database Migration
-
-Apply the AI features database migration in your Supabase dashboard:
-
-1. Go to your Supabase project dashboard
-2. Navigate to the SQL Editor
-3. Run the migration file: `supabase/migrations/004_ai_features.sql`
-
-This creates the necessary tables:
-- `book_chunks`: Stores processed book content for AI analysis
-- `ai_summaries`: Caches generated summaries for performance
-
-### 4. Book Processing
-
-Books are now automatically processed for AI features when uploaded:
-
-1. **Automatic Processing**: When you upload a book (PDF or EPUB), it's automatically processed in the background for AI features
-2. **No Manual Steps Required**: The processing happens seamlessly after upload
-3. **Status Checking**: You can check processing status via:
-   ```
-   GET /api/books/[bookId]/process
-   ```
-
-## Using AI Features
-
-### AI Summary
-
-1. Open any book in the reader
-2. Click the blue "AI Summary" button in the bottom-right corner
-3. The AI will generate a summary based on your current reading progress
-4. Summaries are automatically cached and will update as you read further
-
-### AI Q&A
-
-1. Open any book in the reader
-2. Click the green "Ask AI" button in the bottom-right corner
-3. Type your question about the book content
-4. Get intelligent answers based on the book's content
+This application includes AI-powered summarization and Q&A functionality using Together.ai's Llama 4 Scout model. The AI features are progress-aware, meaning summaries are generated only up to the point where you're currently reading in the book.
 
 ## Features
 
-### Smart Caching
-- Summaries are cached based on progress percentage (rounded to nearest 5%)
-- Cached summaries load instantly
-- Cache is invalidated when book content changes
+### 📚 **Supported File Formats**
+- **PDF Files**: Full text extraction, metadata, and cover image extraction
+- **EPUB Files**: Complete metadata extraction including:
+  - ✅ Title and author from OPF metadata
+  - ✅ Cover images extracted from EPUB structure  
+  - ✅ Estimated page counts based on content analysis
+  - ✅ Robust text extraction with fallback mechanisms
 
-### Progress-Aware
-- Summaries only include content up to your current reading position
-- No spoilers - the AI only knows what you've read so far
-- Real-time updates as you progress through the book
+### 🤖 **AI Capabilities**
+- **Progress-Aware Summarization**: Generates summaries only up to your current reading position
+- **Intelligent Q&A**: Ask questions about the book content you've read
+- **Automatic Processing**: Books are automatically processed for AI features after upload
+- **Smart Caching**: Summaries are cached to avoid regeneration
 
-### Error Handling
-- Graceful fallbacks when AI service is unavailable
-- Clear error messages for users
-- Retry functionality for failed requests
+### 🔄 **Background Processing**
+- **Automatic Chunking**: Books are split into ~500-word chunks for optimal AI processing
+- **Metadata Extraction**: Cover images, page counts, and book details extracted automatically
+- **Database Storage**: All processed data stored securely in Supabase with user isolation
 
-## API Endpoints
+## Setup Instructions
 
-### Summarization
-- `POST /api/books/[bookId]/summarize` - Generate summary up to current progress
-- `GET /api/books/[bookId]/summarize?progress=X` - Get cached summary
+### 1. Together.ai API Setup
 
-### Q&A
-- `POST /api/books/[bookId]/qa` - Ask a question about book content
-- `GET /api/books/[bookId]/qa` - Get Q&A history (placeholder)
+1. **Get API Key**: Visit [Together.ai](https://together.ai) and create an account
+2. **Generate API Key**: Go to your dashboard and generate a new API key
+3. **Add to Environment**: Add the following to your `.env.local` file:
 
-### Processing
-- `POST /api/books/[bookId]/process` - Process book into chunks for AI
-- `GET /api/books/[bookId]/process` - Check processing status
-
-## Configuration
-
-### AI Settings
-
-You can customize AI behavior by modifying the default settings in `src/contexts/AIContext.tsx`:
-
-```typescript
-const defaultAISettings: AISettings = {
-  autoSummarizeEnabled: true,
-  summaryIntervalPercentage: 10, // Generate summary every 10% of progress
-  maxQAHistory: 20,
-  enableRealTimeQA: true,
-};
+```bash
+TOGETHER_API_KEY=your_together_api_key_here
 ```
 
-### Model Parameters
+### 2. Supabase Storage Setup
 
-AI model parameters can be adjusted in `src/lib/services/aiService.ts`:
+The app requires a storage bucket for book covers. Run this SQL in your Supabase SQL editor:
 
-- **Temperature**: Controls randomness (0.2-0.3 for Q&A, 0.3 for summaries)
-- **Max Tokens**: Maximum response length (800 for Q&A, 1000 for summaries)
-- **Top P/Top K**: Controls response diversity
+```sql
+-- Create storage bucket for book covers (if not exists)
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('book-covers', 'book-covers', true)
+ON CONFLICT (id) DO NOTHING;
 
-## Performance Considerations
+-- Set up storage policies for book covers
+CREATE POLICY "Users can upload their own book covers" ON storage.objects
+FOR INSERT TO authenticated
+WITH CHECK (bucket_id = 'book-covers' AND auth.uid()::text = (storage.foldername(name))[1]);
 
-1. **Chunk Size**: Books are processed into ~500-word chunks for optimal AI performance
-2. **Caching**: Summaries are cached to reduce API calls and improve response times
-3. **Debouncing**: Summary generation is debounced to prevent excessive API usage
-4. **Context Limits**: Q&A uses up to 15 chunks for context to stay within token limits
+CREATE POLICY "Users can view their own book covers" ON storage.objects
+FOR SELECT TO authenticated
+USING (bucket_id = 'book-covers' AND auth.uid()::text = (storage.foldername(name))[1]);
+
+CREATE POLICY "Book covers are publicly viewable" ON storage.objects
+FOR SELECT TO anon
+USING (bucket_id = 'book-covers');
+```
+
+### 3. Database Migration
+
+Run the AI features migration:
+
+```bash
+npx supabase migration up
+```
+
+Or manually run the SQL from `supabase/migrations/004_ai_features.sql`.
+
+## Usage
+
+### 📖 **Reading with AI Features**
+
+1. **Upload a Book**: 
+   - Go to `/upload` and drag & drop your PDF or EPUB file
+   - Book will be automatically processed in the background
+   - Look for "Successfully processed" message in console
+
+2. **Start Reading**:
+   - Navigate to your book in the library
+   - Open the reader
+   - AI features will be available once processing is complete
+
+3. **Generate Summary**:
+   - Click the "AI Summary" button in the reader
+   - Summary will cover content up to your current reading position
+   - Summaries are cached for faster subsequent access
+
+4. **Ask Questions**:
+   - Click the "Q&A" button in the reader  
+   - Type your question about the book content
+   - Get intelligent answers based on what you've read
+
+### 🔄 **Processing Status**
+
+Books go through these processing stages:
+
+1. **Upload** → Book record created
+2. **Background Processing** → Text extraction and chunking
+3. **Metadata Extraction** → Cover images and book details (EPUB)
+4. **Ready** → AI features available
+
+Check browser console for processing status messages.
+
+## Technical Details
+
+### 📊 **Book Processing Pipeline**
+
+1. **Text Extraction**:
+   - **PDF**: Uses PDF.js to extract text page by page
+   - **EPUB**: Custom ZIP parser reads OPF structure and XHTML content
+
+2. **Metadata Extraction** (EPUB):
+   - Parses `META-INF/container.xml` to find OPF file
+   - Extracts title, author from Dublin Core metadata
+   - Locates cover image using manifest references
+   - Estimates page count: ~500 words per page calculation
+
+3. **Chunking Strategy**:
+   - Content split into ~500-word chunks
+   - Maintains page boundaries where possible
+   - Each chunk indexed for retrieval
+
+4. **AI Processing**:
+   - Uses Together.ai Llama 4 Scout model
+   - Context window management for large books
+   - Progress-aware content selection
+
+### 🗄️ **Database Schema**
+
+```sql
+-- Book chunks for AI processing
+CREATE TABLE book_chunks (
+  id UUID PRIMARY KEY,
+  book_id UUID REFERENCES books(id),
+  chunk_index INTEGER,
+  content TEXT,
+  page_start INTEGER,
+  page_end INTEGER,
+  word_count INTEGER
+);
+
+-- Cached AI summaries  
+CREATE TABLE ai_summaries (
+  id UUID PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id),
+  book_id UUID REFERENCES books(id), 
+  progress_percentage INTEGER,
+  summary_text TEXT,
+  chunk_end_index INTEGER
+);
+```
+
+### 🔒 **Security & Privacy**
+
+- **Row Level Security**: All data isolated by user ID
+- **Authenticated API**: All AI endpoints require valid session
+- **Data Minimization**: Only necessary chunks sent to AI model
+- **Local Processing**: Text extraction happens server-side, not shared
 
 ## Troubleshooting
 
-### "AI service is not configured" Error
-- Ensure `TOGETHER_AI_API_KEY` is set in your environment variables
-- Restart your development server after adding the key
+### Common Issues
 
-### "No book content found" Error
-- The book may not have been processed yet (processing happens automatically in background)
-- Check the server logs for processing status
-- Supports both PDF and EPUB files
-- For EPUB files, ensure they contain readable text content (not just images)
+#### 1. **AI Features Not Available**
+```
+Issue: AI buttons not showing or "No chunks found" error
+Solution: 
+- Check browser console for processing errors
+- Verify book was uploaded successfully
+- Wait for background processing to complete
+- Try re-uploading the file
+```
 
-### Slow Response Times
-- First-time summaries may take 10-30 seconds to generate
-- Subsequent requests for the same progress level use cached responses
-- Consider upgrading to Together.ai's faster models if needed
+#### 2. **EPUB Processing Failures**
+```
+Issue: EPUB metadata not extracted or empty fields
+Solution:
+- Ensure EPUB file is valid (try opening in other readers)
+- Check for malformed OPF structure in console logs
+- Verify storage bucket permissions for cover upload
+- Test with different EPUB files
+```
 
-## Future Enhancements
+#### 3. **Summary Generation Errors**
+```
+Issue: "Failed to generate summary" error
+Solution:
+- Verify TOGETHER_API_KEY is set correctly
+- Check API rate limits on Together.ai dashboard
+- Ensure sufficient credits/quota on Together.ai account
+- Try with smaller progress percentage
+```
 
-- **Semantic Search**: Find specific passages in books
-- **Bookmark Integration**: AI-powered bookmark suggestions
-- **Reading Analytics**: AI insights about reading patterns
-- **Multi-language Support**: Support for books in different languages
-- **Enhanced EPUB Support**: Better handling of complex EPUB layouts and embedded media
+#### 4. **Storage Upload Failures**
+```
+Issue: Cover images not appearing
+Solution:
+- Verify Supabase storage bucket exists
+- Check storage policies allow uploads
+- Confirm user authentication is working
+- Review network logs for storage errors
+```
 
-## Security Notes
+### Debug Mode
 
-- All API endpoints require user authentication
-- Row Level Security ensures users only access their own data
-- AI responses are based only on book content, not external information
-- No personal data is sent to the AI service, only book content 
+Enable debug logging by adding to `.env.local`:
+
+```bash
+NODE_ENV=development
+DEBUG=true
+```
+
+This will show detailed processing logs in the server console.
+
+### Manual Processing
+
+If automatic processing fails, you can manually trigger it:
+
+```bash
+curl -X POST http://localhost:3000/api/books/[bookId]/process
+```
+
+## Performance Notes
+
+- **Initial Processing**: 30-60 seconds for average book
+- **Summary Generation**: 5-10 seconds depending on content size  
+- **Q&A Response**: 3-5 seconds for typical questions
+- **Chunk Storage**: ~1-2MB per book in database
+- **Cover Images**: Optimized JPEG, typically <100KB
+
+## API Endpoints
+
+### Book Processing
+- `POST /api/books/upload` - Upload and process book
+- `POST /api/books/[bookId]/process` - Manual processing trigger
+
+### AI Features  
+- `POST /api/books/[bookId]/summarize` - Generate progress summary
+- `POST /api/books/[bookId]/qa` - Ask questions about book
+
+### Metadata
+- `PATCH /api/books/[bookId]` - Update book metadata
+- `GET /api/books/[bookId]` - Get book details
+
+## Contributing
+
+When adding new AI features:
+
+1. **Follow Chunking Strategy**: Maintain ~500-word chunks
+2. **Progress Awareness**: Always respect user's reading position  
+3. **Error Handling**: Graceful fallbacks for AI service issues
+4. **Performance**: Cache results when possible
+5. **Privacy**: Never log sensitive content
+
+For EPUB support improvements:
+- Test with diverse EPUB files (different structures)
+- Handle malformed OPF files gracefully
+- Support alternative metadata formats
+- Optimize text extraction performance
+
+---
+
+**Need Help?** Check the browser console for detailed error messages and processing status updates. 
