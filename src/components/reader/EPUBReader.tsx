@@ -731,6 +731,26 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (!rendition) return;
 
+    // Check if user is typing in an input field
+    const activeElement = document.activeElement;
+    const isInputFocused = activeElement && (
+      activeElement.tagName.toLowerCase() === 'input' ||
+      activeElement.tagName.toLowerCase() === 'textarea' ||
+      activeElement.getAttribute('contenteditable') === 'true' ||
+      activeElement.closest('[contenteditable="true"]')
+    );
+
+    // Don't process navigation keys if user is typing in an input
+    if (isInputFocused) {
+      // Only handle Escape to close panels when typing
+      if (e.key === "Escape") {
+        setShowChapters(false);
+        setShowSettings(false);
+        setShowSearch(false);
+      }
+      return;
+    }
+
     if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
       e.preventDefault();
       prevPage();
