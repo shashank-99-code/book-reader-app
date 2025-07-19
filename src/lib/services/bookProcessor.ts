@@ -48,41 +48,103 @@ export async function extractTextFromPDF(fileBuffer: ArrayBuffer): Promise<strin
 }
 
 /**
- * Extract text content from EPUB file using epub-parser library
+ * Extract text content from EPUB file using manual ZIP parsing
  */
 export async function extractTextFromEPUB(fileBuffer: ArrayBuffer): Promise<string[]> {
   try {
-    // Dynamic import to avoid SSR issues
-    const { parseEpub } = await import('epub-parser');
-    const { parse } = await import('node-html-parser');
+    const AdmZip = (await import('adm-zip')).default;
+    const { JSDOM } = await import('jsdom');
     
     // Create a buffer from ArrayBuffer
     const buffer = Buffer.from(fileBuffer);
+    const zip = new AdmZip(buffer);
     
-    // Parse the EPUB file
-    const book = await parseEpub(buffer);
-    
-    if (!book.sections || book.sections.length === 0) {
-      console.warn('No sections found in EPUB');
-      return [];
+    // Find the content.opf file to get the reading order
+    const containerEntry = zip.getEntry('META-INF/container.xml');
+    if (!containerEntry) {
+      throw new Error('Invalid EPUB: missing container.xml');
     }
     
+    const containerContent = containerEntry.getData().toString('utf8');
+    const containerDom = new JSDOM(containerContent, { contentType: 'text/xml' });
+    const rootfileElement = containerDom.window.document.querySelector('rootfile');
+    
+    if (!rootfileElement) {
+      throw new Error('Invalid EPUB: missing rootfile in container.xml');
+    }
+    
+    const opfPath = rootfileElement.getAttribute('full-path');
+    if (!opfPath) {
+      throw new Error('Invalid EPUB: missing full-path in rootfile');
+    }
+    
+    // Get the OPF file
+    const opfEntry = zip.getEntry(opfPath);
+    if (!opfEntry) {
+      throw new Error(`Invalid EPUB: missing OPF file at ${opfPath}`);
+    }
+    
+    const opfContent = opfEntry.getData().toString('utf8');
+    const opfDom = new JSDOM(opfContent, { contentType: 'text/xml' });
+    const opfDoc = opfDom.window.document;
+    
+    // Get the directory path for the OPF file
+    const opfDir = opfPath.split('/').slice(0, -1).join('/');
+    const basePath = opfDir ? opfDir + '/' : '';
+    
+    // Get the spine (reading order)
+    const spineItems = opfDoc.querySelectorAll('spine itemref');
     const pages: string[] = [];
     
-    for (const section of book.sections) {
-      if (section.htmlContent) {
-        // Parse HTML and extract text content
-        const root = parse(section.htmlContent);
-        const textContent = root.text;
-        
-        if (textContent && textContent.trim().length > 0) {
-          pages.push(textContent.trim());
-        }
+    for (const itemref of spineItems) {
+      const idref = itemref.getAttribute('idref');
+      if (!idref) continue;
+      
+      // Find the corresponding manifest item
+      const manifestItem = opfDoc.querySelector(`manifest item[id="${idref}"]`);
+      if (!manifestItem) continue;
+      
+      const href = manifestItem.getAttribute('href');
+      if (!href) continue;
+      
+      // Get the XHTML file
+      const contentPath = basePath + href;
+      const contentEntry = zip.getEntry(contentPath);
+      if (!contentEntry) {
+        console.warn(`Missing content file: ${contentPath}`);
+        continue;
+      }
+      
+      const htmlContent = contentEntry.getData().toString('utf8');
+      
+      // Extract text using JSDOM
+      const dom = new JSDOM(htmlContent);
+      const textContent = dom.window.document.body?.textContent || '';
+      
+      if (textContent && textContent.trim().length > 0) {
+        pages.push(textContent.trim());
       }
     }
     
     if (pages.length === 0) {
       console.warn('No text content extracted from EPUB');
+      // Fallback: try to extract from any HTML files
+      const entries = zip.getEntries();
+      for (const entry of entries) {
+        if (entry.entryName.endsWith('.html') || entry.entryName.endsWith('.xhtml')) {
+          try {
+            const htmlContent = entry.getData().toString('utf8');
+            const dom = new JSDOM(htmlContent);
+            const textContent = dom.window.document.body?.textContent || '';
+            
+            if (textContent && textContent.trim().length > 0) {
+              pages.push(textContent.trim());
+            }
+          } catch (e) {
+            console.warn(`Failed to extract from ${entry.entryName}:`, e);
+          }
+        }
+      }
     }
     
     return pages;
