@@ -48,15 +48,72 @@ export async function extractTextFromPDF(fileBuffer: ArrayBuffer): Promise<strin
 }
 
 /**
- * Extract text content from EPUB file (basic implementation)
- * This is a simplified version - you may want to enhance it with a proper EPUB parser
+ * Extract text content from EPUB file using epub2 library
  */
 export async function extractTextFromEPUB(fileBuffer: ArrayBuffer): Promise<string[]> {
   try {
-    // For now, return empty array - this would need epub.js or similar library
-    // to properly extract text content from EPUB files
-    console.warn('EPUB text extraction not yet implemented');
-    return [];
+    const EPub = require('epub2').EPub;
+    const { parse } = require('node-html-parser');
+    
+    // Create a buffer from ArrayBuffer
+    const buffer = Buffer.from(fileBuffer);
+    
+    return new Promise((resolve, reject) => {
+      const epub = new EPub(buffer);
+      
+      epub.on('error', (error: Error) => {
+        console.error('EPUB parsing error:', error);
+        reject(new Error('Failed to parse EPUB file'));
+      });
+      
+      epub.on('end', () => {
+        const pages: string[] = [];
+        const flow = epub.flow;
+        
+        if (!flow || flow.length === 0) {
+          console.warn('No content flow found in EPUB');
+          resolve([]);
+          return;
+        }
+        
+        let processedCount = 0;
+        const totalChapters = flow.length;
+        
+        if (totalChapters === 0) {
+          resolve([]);
+          return;
+        }
+        
+        flow.forEach((chapter: any, index: number) => {
+          epub.getChapter(chapter.id, (error: Error, text: string) => {
+            if (error) {
+              console.warn(`Failed to extract chapter ${chapter.id}:`, error);
+            } else if (text) {
+              // Parse HTML and extract text content
+              const root = parse(text);
+              const textContent = root.text;
+              
+              if (textContent && textContent.trim().length > 0) {
+                pages.push(textContent.trim());
+              }
+            }
+            
+            processedCount++;
+            
+            // Resolve when all chapters are processed
+            if (processedCount === totalChapters) {
+              if (pages.length === 0) {
+                console.warn('No text content extracted from EPUB');
+              }
+              resolve(pages);
+            }
+          });
+        });
+      });
+      
+      // Parse the EPUB file
+      epub.parse();
+    });
   } catch (error) {
     console.error('Error extracting text from EPUB:', error);
     throw new Error('Failed to extract text from EPUB');

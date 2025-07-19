@@ -23,6 +23,7 @@
     "epubjs": "^0.3.93",
     "lodash": "^4.17.21",
     "next": "15.3.2",
+    "node-html-parser": "^7.0.1",
     "pdfjs-dist": "4.8.69",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

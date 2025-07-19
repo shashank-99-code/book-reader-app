@@ -20,7 +20,8 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
     setCurrentBook,
     isLoading: contextLoading,
     error: contextError,
-    settings
+    settings,
+    progress
   } = useReader();
 
   const [isLoading, setIsLoading] = useState(true);
@@ -167,7 +168,7 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
       <AISummaryPanel
         bookId={currentBook.id || resolvedParams.bookId}
         bookTitle={currentBook.title || 'Untitled Book'}
-        currentProgress={75} // TODO: Get actual progress from ReaderContext
+        currentProgress={progress || 0}
         isVisible={showSummaryPanel}
         onClose={() => setShowSummaryPanel(false)}
       />
