@@ -62,7 +62,7 @@ Summary:`;
         },
       ],
       model: 'meta-llama/Llama-4-Scout-17B-16E-Instruct',
-      max_tokens: 2000,
+      max_tokens: 20000000,
       temperature: 0.3,
       top_p: 0.7,
       top_k: 50,
@@ -98,53 +98,16 @@ export async function answerQuestion(request: QARequest): Promise<AIResponse> {
   try {
     const { question, chunks, context } = request;
     
-    // Smart token management for Q&A
-    const MAX_CONTEXT_TOKENS = 18000; // Conservative buffer for 20k limit
-    const ESTIMATED_CHARS_PER_TOKEN = 4; // Conservative estimate
-    const maxContextChars = MAX_CONTEXT_TOKENS * ESTIMATED_CHARS_PER_TOKEN;
+    // Combine all chunks into context (no token limits)
+    const bookContext = chunks.join('\n\n');
     
-    // Build context respecting token limits
-    let bookContext = '';
-    let contextLength = 0;
-    let usedChunks = 0;
-    
-    // Start from most recent chunks (end of reading progress)
-    for (let i = chunks.length - 1; i >= 0; i--) {
-      const chunk = chunks[i];
-      const chunkLength = chunk.length + 2; // +2 for \n\n separator
-      
-      if (contextLength + chunkLength > maxContextChars) {
-        break; // Stop if adding this chunk would exceed limit
-      }
-      
-      bookContext = chunk + '\n\n' + bookContext;
-      contextLength += chunkLength;
-      usedChunks++;
-    }
-    
-    // If we didn't use all chunks, also try to include some from the beginning
-    if (usedChunks < chunks.length && contextLength < maxContextChars * 0.8) {
-      for (let i = 0; i < chunks.length - usedChunks; i++) {
-        const chunk = chunks[i];
-        const chunkLength = chunk.length + 2;
-        
-        if (contextLength + chunkLength > maxContextChars) {
-          break;
-        }
-        
-        bookContext = chunk + '\n\n' + bookContext;
-        contextLength += chunkLength;
-        usedChunks++;
-      }
-    }
-    
-    console.log(`Q&A: Using ${usedChunks}/${chunks.length} chunks (${Math.round(contextLength/1000)}k chars) for question: "${question.substring(0, 50)}..."`);
+    console.log(`Q&A: Using all ${chunks.length} chunks for question: "${question.substring(0, 50)}..."`);
     
     // Create prompt for Q&A
     const prompt = `You are an expert book assistant. Answer the following question based ONLY on the provided book content. If the answer is not in the provided content, say so clearly.
 
 Book Content:
-${bookContext.trim()}
+${bookContext}
 
 ${context ? `Additional Context: ${context}` : ''}
 
@@ -162,7 +125,7 @@ Answer:`;
         },
       ],
       model: 'meta-llama/Llama-4-Scout-17B-16E-Instruct',
-      max_tokens: 2000,
+      max_tokens: 20000000,
       temperature: 0.2,
       top_p: 0.8,
       top_k: 40,
