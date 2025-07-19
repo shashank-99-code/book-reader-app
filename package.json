@@ -19,7 +19,7 @@
     "@types/react-pdf": "^6.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "epub2": "^3.0.2",
+    "epub-parser": "^0.2.5",
     "epubjs": "^0.3.93",
     "lodash": "^4.17.21",
     "next": "15.3.2",

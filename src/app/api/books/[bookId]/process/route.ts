@@ -4,10 +4,10 @@ import { processBookFile } from '@/lib/services/bookProcessor';
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { bookId: string } }
+  { params }: { params: Promise<{ bookId: string }> }
 ) {
   try {
-    const { bookId } = params;
+    const { bookId } = await params;
 
     // Get authenticated user
     const supabase = await createClient();
@@ -94,10 +94,10 @@ export async function POST(
 // GET endpoint to check processing status
 export async function GET(
   req: NextRequest,
-  { params }: { params: { bookId: string } }
+  { params }: { params: Promise<{ bookId: string }> }
 ) {
   try {
-    const { bookId } = params;
+    const { bookId } = await params;
 
     // Get authenticated user
     const supabase = await createClient();
@@ -126,7 +126,7 @@ export async function GET(
     }
 
     // Check processing status by counting chunks
-    const { data: chunks, error: chunksError, count } = await supabase
+    const { error: chunksError, count } = await supabase
       .from('book_chunks')
       .select('*', { count: 'exact', head: true })
       .eq('book_id', bookId);

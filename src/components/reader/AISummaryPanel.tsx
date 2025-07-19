@@ -153,7 +153,7 @@ export function AISummaryPanel({
             </div>
             <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Summary covers the first {Math.round(state.summaryProgress)}% of "{bookTitle}"
+                Summary covers the first {Math.round(state.summaryProgress)}% of &quot;{bookTitle}&quot;
               </p>
             </div>
           </div>

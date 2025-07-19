@@ -6,6 +6,8 @@ This book reader app now includes AI-powered summarization and Q&A features usin
 
 - **Progress-aware summarization**: Get AI summaries of your reading progress up to any point
 - **Book Q&A**: Ask questions about the book content and get intelligent answers
+- **Multi-format support**: Works with both PDF and EPUB files
+- **Automatic processing**: Books are automatically processed for AI features upon upload
 - **Caching**: Summaries are cached for performance and to reduce API calls
 
 ## Setup Instructions
@@ -46,14 +48,14 @@ This creates the necessary tables:
 
 ### 4. Book Processing
 
-When books are uploaded, they need to be processed into chunks for AI analysis:
+Books are now automatically processed for AI features when uploaded:
 
-1. **Automatic Processing**: After uploading a book, call the processing endpoint:
+1. **Automatic Processing**: When you upload a book (PDF or EPUB), it's automatically processed in the background for AI features
+2. **No Manual Steps Required**: The processing happens seamlessly after upload
+3. **Status Checking**: You can check processing status via:
    ```
-   POST /api/books/[bookId]/process
+   GET /api/books/[bookId]/process
    ```
-
-2. **Manual Processing**: You can also trigger processing from the UI or via API
 
 ## Using AI Features
 
@@ -139,9 +141,10 @@ AI model parameters can be adjusted in `src/lib/services/aiService.ts`:
 - Restart your development server after adding the key
 
 ### "No book content found" Error
-- The book needs to be processed into chunks first
-- Call the `/api/books/[bookId]/process` endpoint
-- Currently supports PDF files; EPUB support can be enhanced
+- The book may not have been processed yet (processing happens automatically in background)
+- Check the server logs for processing status
+- Supports both PDF and EPUB files
+- For EPUB files, ensure they contain readable text content (not just images)
 
 ### Slow Response Times
 - First-time summaries may take 10-30 seconds to generate
@@ -150,11 +153,11 @@ AI model parameters can be adjusted in `src/lib/services/aiService.ts`:
 
 ## Future Enhancements
 
-- **EPUB Processing**: Enhanced text extraction from EPUB files
 - **Semantic Search**: Find specific passages in books
 - **Bookmark Integration**: AI-powered bookmark suggestions
 - **Reading Analytics**: AI insights about reading patterns
 - **Multi-language Support**: Support for books in different languages
+- **Enhanced EPUB Support**: Better handling of complex EPUB layouts and embedded media
 
 ## Security Notes
 

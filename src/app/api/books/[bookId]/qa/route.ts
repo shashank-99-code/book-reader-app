@@ -5,10 +5,10 @@ import { getBookChunks } from '@/lib/services/bookProcessor';
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { bookId: string } }
+  { params }: { params: Promise<{ bookId: string }> }
 ) {
   try {
-    const { bookId } = params;
+    const { bookId } = await params;
     
     // Check if AI service is configured
     if (!isAIServiceConfigured()) {
@@ -117,13 +117,14 @@ export async function POST(
 // GET endpoint to retrieve recent Q&A history (optional feature)
 export async function GET(
   req: NextRequest,
-  { params }: { params: { bookId: string } }
+  { params }: { params: Promise<{ bookId: string }> }
 ) {
   try {
-    const { bookId } = params;
-    const { searchParams } = new URL(req.url);
-    const limitStr = searchParams.get('limit') || '10';
-    const limit = Math.min(parseInt(limitStr, 10) || 10, 50); // Max 50 items
+    const { bookId } = await params;
+    // Note: Limit parameter available for future use
+    // const { searchParams } = new URL(req.url);
+    // const limitStr = searchParams.get('limit') || '10';
+    // const limit = Math.min(parseInt(limitStr, 10) || 10, 50); // Max 50 items
 
     // Get authenticated user
     const supabase = await createClient();

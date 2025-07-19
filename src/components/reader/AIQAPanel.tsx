@@ -82,7 +82,7 @@ export function AIQAPanel({ bookId, bookTitle, isVisible, onClose }: AIQAPanelPr
           </div>
           <div>
             <h3 className="font-semibold text-gray-900 dark:text-white">Ask AI</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">About "{bookTitle}"</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">About &quot;{bookTitle}&quot;</p>
           </div>
         </div>
         <div className="flex items-center space-x-2">

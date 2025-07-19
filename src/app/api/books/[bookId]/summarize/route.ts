@@ -5,10 +5,10 @@ import { isAIServiceConfigured } from '@/lib/services/aiService';
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { bookId: string } }
+  { params }: { params: Promise<{ bookId: string }> }
 ) {
   try {
-    const { bookId } = params;
+    const { bookId } = await params;
     
     // Check if AI service is configured
     if (!isAIServiceConfigured()) {
@@ -91,10 +91,10 @@ export async function POST(
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { bookId: string } }
+  { params }: { params: Promise<{ bookId: string }> }
 ) {
   try {
-    const { bookId } = params;
+    const { bookId } = await params;
     const { searchParams } = new URL(req.url);
     const progressStr = searchParams.get('progress');
     
