@@ -6,6 +6,7 @@ A Next.js application with Supabase backend that allows users to upload and read
 ## Technology Stack
 - **Frontend**: Next.js 14+ (App Router)
 - **Backend**: Supabase (Database + Authentication + Storage)
+- **AI Services**: Together.ai Llama 4 Scout for summarization and Q&A
 - **File Processing**: PDF.js, epub.js for book parsing
 - **State Management**: React Context + useState/useReducer
 - **Styling**: Tailwind CSS
@@ -33,7 +34,11 @@ book-reader-app/
 │   │   │   ├── books/
 │   │   │   │   ├── route.ts
 │   │   │   │   ├── [bookId]/
-│   │   │   │   │   └── route.ts
+│   │   │   │   │   ├── route.ts
+│   │   │   │   │   ├── summarize/
+│   │   │   │   │   │   └── route.ts
+│   │   │   │   │   └── qa/
+│   │   │   │   │       └── route.ts
 │   │   │   │   └── upload/
 │   │   │   │       └── route.ts
 │   │   │   └── user/
@@ -60,7 +65,9 @@ book-reader-app/
 │   │   │   ├── PDFReader.tsx
 │   │   │   ├── EPUBReader.tsx
 │   │   │   ├── ReaderControls.tsx
-│   │   │   └── ReadingProgress.tsx
+│   │   │   ├── ReadingProgress.tsx
+│   │   │   ├── AISummaryPanel.tsx
+│   │   │   └── AIQAPanel.tsx
 │   │   └── layout/
 │   │       ├── Header.tsx
 │   │       ├── Sidebar.tsx
@@ -68,7 +75,8 @@ book-reader-app/
 │   ├── contexts/
 │   │   ├── AuthContext.tsx
 │   │   ├── BookContext.tsx
-│   │   └── ReaderContext.tsx
+│   │   ├── ReaderContext.tsx
+│   │   └── AIContext.tsx
 │   ├── lib/
 │   │   ├── supabase/
 │   │   │   ├── client.ts
@@ -77,7 +85,10 @@ book-reader-app/
 │   │   ├── services/
 │   │   │   ├── bookService.ts
 │   │   │   ├── fileService.ts
-│   │   │   └── userService.ts
+│   │   │   ├── userService.ts
+│   │   │   ├── aiService.ts
+│   │   │   ├── summarizationService.ts
+│   │   │   └── bookProcessor.ts
 │   │   ├── utils/
 │   │   │   ├── fileValidation.ts
 │   │   │   ├── bookParser.ts
@@ -204,6 +215,21 @@ book-reader-app/
 }
 ```
 
+#### AIContext
+```typescript
+// Manages AI features and state
+{
+  isLoading: boolean,
+  currentSummary: string | null,
+  summaryProgress: number,
+  qaHistory: QAItem[],
+  generateSummary: (bookId: string, progress: number) => Promise<void>,
+  askQuestion: (question: string, bookId: string) => Promise<string>,
+  clearSummary: () => void,
+  clearQAHistory: () => void
+}
+```
+
 ## Database Schema (Supabase)
 
 ### Users Table
@@ -264,6 +290,36 @@ CREATE TABLE bookmarks (
 );
 ```
 
+### Book Chunks Table
+```sql
+CREATE TABLE book_chunks (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  book_id UUID REFERENCES books(id) ON DELETE CASCADE,
+  chunk_index INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  page_start INTEGER,
+  page_end INTEGER,
+  word_count INTEGER,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(book_id, chunk_index)
+);
+```
+
+### AI Summaries Table
+```sql
+CREATE TABLE ai_summaries (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  book_id UUID REFERENCES books(id) ON DELETE CASCADE,
+  progress_percentage INTEGER NOT NULL,
+  summary_text TEXT NOT NULL,
+  chunk_end_index INTEGER NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(user_id, book_id, progress_percentage)
+);
+```
+
 ## Service Layer Architecture
 
 ### File Service (`/lib/services/fileService.ts`)
@@ -283,6 +339,22 @@ CREATE TABLE bookmarks (
 - **updateProfile()** - Updates user information
 - **getReadingStats()** - Returns reading statistics
 
+### AI Service (`/lib/services/aiService.ts`)
+- **generateSummary()** - Calls Together.ai API for content summarization
+- **answerQuestion()** - Handles Q&A using book content as context
+- **processChunksForContext()** - Prepares chunks for AI processing
+
+### Summarization Service (`/lib/services/summarizationService.ts`)
+- **getProgressSummary()** - Generates summary up to reading progress
+- **cacheSummary()** - Stores generated summaries for performance
+- **invalidateCache()** - Clears cached summaries when needed
+
+### Book Processor (`/lib/services/bookProcessor.ts`)
+- **createChunks()** - Splits book content into processable chunks
+- **extractTextFromPDF()** - Extracts text content from PDF files
+- **extractTextFromEPUB()** - Extracts text content from EPUB files
+- **storeChunks()** - Saves chunks to database for AI processing
+
 ## API Routes
 
 ### Books API (`/api/books/`)
@@ -296,6 +368,12 @@ CREATE TABLE bookmarks (
 - **PUT /api/progress/[bookId]** - Update reading progress
 - **POST /api/bookmarks** - Create bookmark
 - **GET /api/bookmarks/[bookId]** - Get bookmarks for book
+
+### AI API (`/api/books/[bookId]/`)
+- **POST /api/books/[bookId]/summarize** - Generate summary up to current progress
+- **POST /api/books/[bookId]/qa** - Answer questions about book content
+- **GET /api/books/[bookId]/chunks** - Get book chunks for processing
+- **POST /api/books/[bookId]/process** - Process book into chunks (triggered after upload)
 
 ## Data Flow
 
@@ -320,6 +398,19 @@ CREATE TABLE bookmarks (
 3. Supabase handles session management
 4. Protected routes redirect unauthenticated users
 
+### AI Summarization Flow
+1. User requests summary from **AISummaryPanel**
+2. **AIContext** gets current reading progress from **ReaderContext**
+3. **summarizationService.getProgressSummary()** retrieves relevant chunks
+4. **aiService.generateSummary()** calls Together.ai API with chunks
+5. Generated summary cached in database and displayed in UI
+
+### AI Q&A Flow
+1. User asks question in **AIQAPanel**
+2. **AIContext** collects relevant book chunks based on context
+3. **aiService.answerQuestion()** sends question + chunks to Together.ai
+4. Response displayed in chat interface and added to QA history
+
 ## Key Integrations
 
 ### Supabase Integration
@@ -332,6 +423,12 @@ CREATE TABLE bookmarks (
 - **PDF.js** - Client-side PDF rendering
 - **epub.js** - EPUB file parsing and display
 - **File validation** - MIME type and size checking
+
+### Together.ai Integration
+- **Llama 4 Scout Model** - Advanced summarization and Q&A capabilities
+- **Chunked Context Processing** - Efficient handling of large book content
+- **Progress-Aware Summarization** - Summaries based on reading position
+- **Caching Strategy** - Reduces API calls and improves performance
 
 ### State Synchronization
 - **Real-time updates** via Supabase subscriptions

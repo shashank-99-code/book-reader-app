@@ -574,9 +574,106 @@ typescript// components/reader/ReadingProgress.tsx
 npm run build
 ```
 
-## Phase 14: Advanced Features (Post-MVP)
+## Phase 14: AI Features - Summarization and Q&A
 
-### Task 14.1: Implement EPUB Search Functionality
+### Task 14.1: Set Up Together.ai Integration
+**Goal**: Configure Together.ai API integration for Llama 4 Scout
+**Start**: Basic book reader functionality
+**End**: Together.ai client configured and working
+**Test**: Can make successful API calls to Together.ai
+```bash
+npm install together-ai
+```
+```typescript
+// lib/services/aiService.ts - Basic Together.ai client setup
+```
+
+### Task 14.2: Create Database Schema for AI Features
+**Goal**: Add tables for book chunks and AI summaries
+**Start**: Basic book reader database
+**End**: New tables for AI functionality
+**Test**: Tables exist in Supabase with proper relationships
+```sql
+-- supabase/migrations/004_ai_features.sql
+-- Create book_chunks and ai_summaries tables
+```
+
+### Task 14.3: Implement Book Content Chunking
+**Goal**: Create service to process books into chunks
+**Start**: Basic file upload working
+**End**: Books automatically chunked after upload
+**Test**: Uploaded books have chunks stored in database
+```typescript
+// lib/services/bookProcessor.ts - Enhanced with database storage
+```
+
+### Task 14.4: Create AI Service Layer
+**Goal**: Build core AI functionality for summarization and Q&A
+**Start**: Together.ai client configured
+**End**: AI service with summarization and Q&A methods
+**Test**: Can generate summaries and answer questions
+```typescript
+// lib/services/aiService.ts - Core AI functionality
+// lib/services/summarizationService.ts - Progress-aware summaries
+```
+
+### Task 14.5: Create AI Context and State Management
+**Goal**: Set up React context for AI features
+**Start**: AI services exist
+**End**: AIContext manages AI state across components
+**Test**: AI context provides loading states and results
+```typescript
+// contexts/AIContext.tsx - AI state management
+```
+
+### Task 14.6: Build AI Summary Panel Component
+**Goal**: Create UI for generating and displaying summaries
+**Start**: AI context exists
+**End**: Summary panel integrated into reader
+**Test**: Can generate and display progress-based summaries
+```typescript
+// components/reader/AISummaryPanel.tsx
+```
+
+### Task 14.7: Build AI Q&A Panel Component
+**Goal**: Create chat interface for asking questions about books
+**Start**: Summary panel works
+**End**: Q&A panel with chat interface
+**Test**: Can ask questions and get relevant answers
+```typescript
+// components/reader/AIQAPanel.tsx
+```
+
+### Task 14.8: Create AI API Endpoints
+**Goal**: Build server-side API for AI functionality
+**Start**: AI components exist
+**End**: API endpoints for summarization and Q&A
+**Test**: API endpoints work and return valid responses
+```typescript
+// app/api/books/[bookId]/summarize/route.ts
+// app/api/books/[bookId]/qa/route.ts
+```
+
+### Task 14.9: Integrate AI Features into Reader Interface
+**Goal**: Add AI panels to book reader UI
+**Start**: AI components and APIs exist
+**End**: AI features accessible from reader interface
+**Test**: Can use AI features while reading books
+- Add AI toggle buttons to reader controls
+- Update reader layout to accommodate AI panels
+
+### Task 14.10: Implement Caching and Performance Optimization
+**Goal**: Add caching for AI responses and optimize performance
+**Start**: Basic AI functionality working
+**End**: Cached responses and optimized API usage
+**Test**: Repeated requests use cached data
+- Cache summaries based on progress percentage
+- Implement debouncing for summary generation
+- Add loading states and error handling
+
+## Phase 15: Advanced Features (Post-AI Implementation)
+
+### Task 15.1: Implement EPUB Search Functionality
 **Goal**: Add full-text search capability for EPUB books
 **Start**: Basic EPUB reader works
 **End**: Users can search within EPUB content
@@ -608,7 +705,7 @@ npm run build
 // components/reader/EPUBReader.tsx - Search UI integration
 ```
 
-### Task 14.2: Add Bookmarks Feature
+### Task 15.2: Add Bookmarks Feature
 **Goal**: Allow users to bookmark pages/locations
 **Start**: Reading progress tracking works
 **End**: Users can save and navigate to bookmarks
@@ -618,7 +715,7 @@ npm run build
 // lib/services/bookmarkService.ts
 ```
 
-### Task 14.3: Advanced Reader Features
+### Task 15.3: Advanced Reader Features
 **Goal**: Add zoom, themes, and reading preferences
 **Start**: Basic reader works
 **End**: Enhanced reading experience
@@ -628,7 +725,7 @@ npm run build
 - Font size and family options
 - Page zoom functionality
 
-### Task 14.4: Book Metadata Management
+### Task 15.4: Book Metadata Management
 **Goal**: Allow editing book information
 **Start**: Books display basic metadata
 **End**: Users can edit titles, authors, covers
@@ -638,7 +735,7 @@ npm run build
 // api/books/[bookId]/metadata/route.ts
 ```
 
-### Task 14.5: Social Features
+### Task 15.5: Social Features
 **Goal**: Add sharing and social functionality
 **Start**: Individual reading experience
 **End**: Users can share progress and recommendations
