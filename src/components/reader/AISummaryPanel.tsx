@@ -120,9 +120,55 @@ export function AISummaryPanel({
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
         {state.isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <LoadingSpinner />
-            <span className="ml-2 text-gray-600 dark:text-gray-400">Generating summary...</span>
+          <div className="py-8">
+            {/* Loading Header */}
+            <div className="text-center mb-6">
+              <div className="flex items-center justify-center mb-3">
+                <LoadingSpinner />
+                <span className="ml-2 text-gray-600 dark:text-gray-400 font-medium">Generating AI Summary...</span>
+              </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Analyzing {Math.round(currentProgress)}% of your reading progress
+              </p>
+            </div>
+
+            {/* Loading Progress Bar */}
+            <div className="mb-6">
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-blue-500 via-blue-600 to-blue-500 rounded-full relative">
+                  {/* Animated shimmer effect */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent opacity-40 animate-pulse"></div>
+                  {/* Moving highlight */}
+                  <div className="absolute inset-0 -skew-x-12 bg-gradient-to-r from-transparent via-blue-300 to-transparent opacity-60 animate-bounce"></div>
+                </div>
+              </div>
+              <p className="text-xs text-center text-gray-500 dark:text-gray-400 mt-2">
+                Processing your content with AI...
+              </p>
+            </div>
+
+            {/* Loading Steps */}
+            <div className="space-y-3">
+              <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                <div className="w-2 h-2 bg-blue-500 rounded-full mr-3 animate-pulse"></div>
+                Processing book content...
+              </div>
+              <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                <div className="w-2 h-2 bg-blue-500 rounded-full mr-3 animate-pulse delay-300"></div>
+                Analyzing key themes and topics...
+              </div>
+              <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                <div className="w-2 h-2 bg-blue-500 rounded-full mr-3 animate-pulse delay-700"></div>
+                Generating comprehensive summary...
+              </div>
+            </div>
+
+            {/* Estimated Time */}
+            <div className="mt-6 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+              <p className="text-xs text-blue-600 dark:text-blue-400 text-center">
+                ⏱️ This usually takes 10-30 seconds
+              </p>
+            </div>
           </div>
         ) : state.error ? (
           <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
