@@ -136,8 +136,8 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
     >
       {/* Main Content Area */}
       <div 
-        className={`flex-1 transition-all duration-300 ${
-          showSummaryPanel || showQAPanel ? 'mr-96' : ''
+        className={`flex-1 transition-all duration-300 ease-in-out ${
+          showQAPanel ? 'mr-96' : 'mr-0'
         }`}
       >
         <BookViewer 
@@ -154,30 +154,27 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
         
         <ReadingProgress />
       </div>
+
+      {/* Q&A Sidebar */}
+      <div className={`w-96 transition-transform duration-300 ease-in-out ${
+        showQAPanel ? 'translate-x-0' : 'translate-x-full'
+      }`}>
+        <AIQAPanel
+          bookId={currentBook.id || resolvedParams.bookId}
+          bookTitle={currentBook.title || 'Untitled Book'}
+          isVisible={showQAPanel}
+          onClose={() => setShowQAPanel(false)}
+        />
+      </div>
       
-      {/* AI Panels - Right Sidebar */}
-      {(showSummaryPanel || showQAPanel) && (
-        <div className="w-96 flex-shrink-0">
-          {showSummaryPanel && (
-            <AISummaryPanel
-              bookId={currentBook.id || resolvedParams.bookId}
-              bookTitle={currentBook.title || 'Untitled Book'}
-              currentProgress={progress || 0}
-              isVisible={showSummaryPanel}
-              onClose={() => setShowSummaryPanel(false)}
-            />
-          )}
-          
-          {showQAPanel && (
-            <AIQAPanel
-              bookId={currentBook.id || resolvedParams.bookId}
-              bookTitle={currentBook.title || 'Untitled Book'}
-              isVisible={showQAPanel}
-              onClose={() => setShowQAPanel(false)}
-            />
-          )}
-        </div>
-      )}
+      {/* Summary Panel (still overlay) */}
+      <AISummaryPanel
+        bookId={currentBook.id || resolvedParams.bookId}
+        bookTitle={currentBook.title || 'Untitled Book'}
+        currentProgress={progress || 0}
+        isVisible={showSummaryPanel}
+        onClose={() => setShowSummaryPanel(false)}
+      />
     </div>
   );
 } 
