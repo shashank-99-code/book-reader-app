@@ -131,38 +131,53 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
 
   return (
     <div 
-      className={`min-h-screen ${settings.theme === 'dark' ? 'bg-gray-900' : settings.theme === 'sepia' ? 'bg-amber-50' : 'bg-white'}`}
+      className={`min-h-screen flex ${settings.theme === 'dark' ? 'bg-gray-900' : settings.theme === 'sepia' ? 'bg-amber-50' : 'bg-white'}`}
       suppressHydrationWarning
     >
-      <BookViewer 
-        fileUrl={currentBook.publicUrl} 
-        fileType={currentBook.file_type} 
-        bookTitle={currentBook.title || 'Untitled Book'} 
-        bookId={currentBook.id || resolvedParams.bookId}
-        onShowSummary={handleShowSummary}
-        onShowQA={handleShowQA}
-        showSummaryPanel={showSummaryPanel}
-        showQAPanel={showQAPanel}
-        currentProgress={progress || 0}
-      />
+      {/* Main Content Area */}
+      <div 
+        className={`flex-1 transition-all duration-300 ${
+          showSummaryPanel || showQAPanel ? 'mr-96' : ''
+        }`}
+      >
+        <BookViewer 
+          fileUrl={currentBook.publicUrl} 
+          fileType={currentBook.file_type} 
+          bookTitle={currentBook.title || 'Untitled Book'} 
+          bookId={currentBook.id || resolvedParams.bookId}
+          onShowSummary={handleShowSummary}
+          onShowQA={handleShowQA}
+          showSummaryPanel={showSummaryPanel}
+          showQAPanel={showQAPanel}
+          currentProgress={progress || 0}
+        />
+        
+        <ReadingProgress />
+      </div>
       
-      <ReadingProgress />
-      
-      {/* AI Panels */}
-      <AISummaryPanel
-        bookId={currentBook.id || resolvedParams.bookId}
-        bookTitle={currentBook.title || 'Untitled Book'}
-        currentProgress={progress || 0}
-        isVisible={showSummaryPanel}
-        onClose={() => setShowSummaryPanel(false)}
-      />
-      
-      <AIQAPanel
-        bookId={currentBook.id || resolvedParams.bookId}
-        bookTitle={currentBook.title || 'Untitled Book'}
-        isVisible={showQAPanel}
-        onClose={() => setShowQAPanel(false)}
-      />
+      {/* AI Panels - Right Sidebar */}
+      {(showSummaryPanel || showQAPanel) && (
+        <div className="w-96 flex-shrink-0">
+          {showSummaryPanel && (
+            <AISummaryPanel
+              bookId={currentBook.id || resolvedParams.bookId}
+              bookTitle={currentBook.title || 'Untitled Book'}
+              currentProgress={progress || 0}
+              isVisible={showSummaryPanel}
+              onClose={() => setShowSummaryPanel(false)}
+            />
+          )}
+          
+          {showQAPanel && (
+            <AIQAPanel
+              bookId={currentBook.id || resolvedParams.bookId}
+              bookTitle={currentBook.title || 'Untitled Book'}
+              isVisible={showQAPanel}
+              onClose={() => setShowQAPanel(false)}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 } 
