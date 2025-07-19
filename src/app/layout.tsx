@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Merriweather } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from '@/contexts/AuthContext';
+import { AIProvider } from '@/contexts/AIContext';
 
 const inter = Inter({
   variable: "--font-inter",
@@ -31,7 +32,9 @@ export default function RootLayout({
         suppressHydrationWarning={true}
       >
         <AuthProvider>
-          {children}
+          <AIProvider>
+            {children}
+          </AIProvider>
         </AuthProvider>
       </body>
     </html>
