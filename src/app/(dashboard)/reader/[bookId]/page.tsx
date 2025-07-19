@@ -151,28 +151,30 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
         <ReadingProgress />
       </div>
 
-      {/* Q&A Sidebar */}
+      {/* Right Sidebar - Summary or Q&A */}
       <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
-        showQAPanel ? 'w-96' : 'w-0'
+        showSummaryPanel || showQAPanel ? 'w-96' : 'w-0'
       }`}>
         <div className="w-96 h-full">
-          <AIQAPanel
-            bookId={currentBook.id || resolvedParams.bookId}
-            bookTitle={currentBook.title || 'Untitled Book'}
-            isVisible={showQAPanel}
-            onClose={() => setShowQAPanel(false)}
-          />
+          {showSummaryPanel && (
+            <AISummaryPanel
+              bookId={currentBook.id || resolvedParams.bookId}
+              bookTitle={currentBook.title || 'Untitled Book'}
+              currentProgress={progress || 0}
+              isVisible={showSummaryPanel}
+              onClose={() => setShowSummaryPanel(false)}
+            />
+          )}
+          {showQAPanel && (
+            <AIQAPanel
+              bookId={currentBook.id || resolvedParams.bookId}
+              bookTitle={currentBook.title || 'Untitled Book'}
+              isVisible={showQAPanel}
+              onClose={() => setShowQAPanel(false)}
+            />
+          )}
         </div>
       </div>
-      
-      {/* Summary Panel (still overlay) */}
-      <AISummaryPanel
-        bookId={currentBook.id || resolvedParams.bookId}
-        bookTitle={currentBook.title || 'Untitled Book'}
-        currentProgress={progress || 0}
-        isVisible={showSummaryPanel}
-        onClose={() => setShowSummaryPanel(false)}
-      />
     </div>
   );
 } 
