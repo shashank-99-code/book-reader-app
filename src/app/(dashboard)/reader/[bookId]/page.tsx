@@ -135,11 +135,7 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
       suppressHydrationWarning
     >
       {/* Main Content Area */}
-      <div 
-        className={`flex-1 transition-all duration-300 ease-in-out ${
-          showQAPanel ? 'mr-96' : 'mr-0'
-        }`}
-      >
+      <div className="flex-1">
         <BookViewer 
           fileUrl={currentBook.publicUrl} 
           fileType={currentBook.file_type} 
@@ -156,15 +152,17 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
       </div>
 
       {/* Q&A Sidebar */}
-      <div className={`w-96 transition-transform duration-300 ease-in-out ${
-        showQAPanel ? 'translate-x-0' : 'translate-x-full'
+      <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
+        showQAPanel ? 'w-96' : 'w-0'
       }`}>
-        <AIQAPanel
-          bookId={currentBook.id || resolvedParams.bookId}
-          bookTitle={currentBook.title || 'Untitled Book'}
-          isVisible={showQAPanel}
-          onClose={() => setShowQAPanel(false)}
-        />
+        <div className="w-96 h-full">
+          <AIQAPanel
+            bookId={currentBook.id || resolvedParams.bookId}
+            bookTitle={currentBook.title || 'Untitled Book'}
+            isVisible={showQAPanel}
+            onClose={() => setShowQAPanel(false)}
+          />
+        </div>
       </div>
       
       {/* Summary Panel (still overlay) */}
