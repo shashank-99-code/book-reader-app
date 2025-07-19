@@ -467,6 +467,8 @@ export async function getChunksUpToProgress(
     // Calculate how many chunks to include based on progress
     const chunksToInclude = Math.ceil((progressPercentage / 100) * count);
     
+    console.log(`getChunksUpToProgress: ${progressPercentage}% of ${count} total chunks = ${chunksToInclude} chunks to include`);
+    
     const { data, error } = await supabase
       .from('book_chunks')
       .select('*')

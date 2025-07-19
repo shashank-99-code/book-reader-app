@@ -60,7 +60,7 @@ function aiReducer(state: AIState, action: AIAction): AIState {
     case 'ADD_QA_ITEM':
       return {
         ...state,
-        qaHistory: [action.payload, ...state.qaHistory.slice(0, state.settings.maxQAHistory - 1)],
+        qaHistory: [...state.qaHistory, action.payload].slice(-state.settings.maxQAHistory),
       };
     
     case 'UPDATE_QA_ITEM':

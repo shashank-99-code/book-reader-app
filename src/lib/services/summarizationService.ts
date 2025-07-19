@@ -170,6 +170,8 @@ export async function getProgressSummary(
     // Get chunks up to current progress
     const chunks = await getChunksUpToProgress(bookId, progressPercentage);
     
+    console.log(`Progress-aware summary: ${progressPercentage}% progress = ${chunks.length} chunks for book ${bookId}`);
+    
     if (chunks.length === 0) {
       return {
         success: false,
