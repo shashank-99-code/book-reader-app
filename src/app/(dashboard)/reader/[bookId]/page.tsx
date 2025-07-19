@@ -118,15 +118,27 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
   }
 
   const handleShowSummary = () => {
-    console.log('Generating summary with progress:', progress, 'for book:', currentBook?.title);
-    setShowQAPanel(false); // Close QA panel if open
-    setShowSummaryPanel(true);
+    console.log('Toggling summary with progress:', progress, 'for book:', currentBook?.title);
+    if (showSummaryPanel) {
+      // If summary is already open, close it
+      setShowSummaryPanel(false);
+    } else {
+      // If summary is closed, open it and close QA
+      setShowQAPanel(false);
+      setShowSummaryPanel(true);
+    }
   };
 
   const handleShowQA = () => {
-    console.log('Opening Q&A with progress:', progress, 'for book:', currentBook?.title);
-    setShowSummaryPanel(false); // Close summary panel if open
-    setShowQAPanel(true);
+    console.log('Toggling Q&A with progress:', progress, 'for book:', currentBook?.title);
+    if (showQAPanel) {
+      // If Q&A is already open, close it
+      setShowQAPanel(false);
+    } else {
+      // If Q&A is closed, open it and close summary
+      setShowSummaryPanel(false);
+      setShowQAPanel(true);
+    }
   };
 
   return (
