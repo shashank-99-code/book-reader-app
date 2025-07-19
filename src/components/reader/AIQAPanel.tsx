@@ -9,11 +9,12 @@ import { QAItem } from '@/lib/types/ai';
 interface AIQAPanelProps {
   bookId: string;
   bookTitle: string;
+  currentProgress: number;
   isVisible: boolean;
   onClose: () => void;
 }
 
-export function AIQAPanel({ bookId, bookTitle, isVisible, onClose }: AIQAPanelProps) {
+export function AIQAPanel({ bookId, bookTitle, currentProgress, isVisible, onClose }: AIQAPanelProps) {
   const { state, askQuestion, clearQAHistory } = useAI();
   const [question, setQuestion] = useState('');
   const [isAsking, setIsAsking] = useState(false);
@@ -42,7 +43,10 @@ export function AIQAPanel({ bookId, bookTitle, isVisible, onClose }: AIQAPanelPr
     setIsAsking(true);
 
     try {
-      await askQuestion(trimmedQuestion, bookId);
+      await askQuestion(trimmedQuestion, bookId, {
+        progressPercentage: currentProgress,
+        includeContext: true,
+      });
     } catch (error) {
       console.error('Failed to ask question:', error);
     } finally {
@@ -150,7 +154,10 @@ export function AIQAPanel({ bookId, bookTitle, isVisible, onClose }: AIQAPanelPr
                           Sorry, I encountered an error: {qa.error}
                         </p>
                         <Button
-                          onClick={() => askQuestion(qa.question, bookId)}
+                          onClick={() => askQuestion(qa.question, bookId, {
+                            progressPercentage: currentProgress,
+                            includeContext: true,
+                          })}
                           size="sm"
                           variant="outline"
                           className="text-xs"

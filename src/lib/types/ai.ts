@@ -33,4 +33,5 @@ export interface GenerateSummaryOptions {
 export interface AskQuestionOptions {
   includeContext?: boolean;
   maxChunks?: number;
+  progressPercentage?: number;
 } 

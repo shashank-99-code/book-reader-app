@@ -181,6 +181,7 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
             <AIQAPanel
               bookId={currentBook.id || resolvedParams.bookId}
               bookTitle={currentBook.title || 'Untitled Book'}
+              currentProgress={progress || 0}
               isVisible={showQAPanel}
               onClose={() => setShowQAPanel(false)}
             />

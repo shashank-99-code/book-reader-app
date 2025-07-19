@@ -188,6 +188,7 @@ export function AIProvider({ children }: { children: React.ReactNode }) {
         },
         body: JSON.stringify({
           question,
+          progressPercentage: options.progressPercentage,
           includeContext: options.includeContext,
           maxChunks: options.maxChunks,
         }),

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { answerQuestion, isAIServiceConfigured, processChunksForContext } from '@/lib/services/aiService';
-import { getBookChunks } from '@/lib/services/bookProcessor';
+import { getChunksUpToProgress } from '@/lib/services/bookProcessor';
 
 export async function POST(
   req: NextRequest,
@@ -31,7 +31,7 @@ export async function POST(
 
     // Parse request body
     const body = await req.json();
-    const { question, includeContext = true, maxChunks = 15 } = body;
+    const { question, progressPercentage, includeContext = true } = body;
 
     // Validate input
     if (!question || typeof question !== 'string' || question.trim().length === 0) {
@@ -48,6 +48,12 @@ export async function POST(
       }, { status: 400 });
     }
 
+    // Validate progress percentage (default to 100 if not provided)
+    const validProgressPercentage = typeof progressPercentage === 'number' && 
+      progressPercentage >= 0 && progressPercentage <= 100 
+      ? progressPercentage 
+      : 100;
+
     // Verify user owns the book
     const { data: book, error: bookError } = await supabase
       .from('books')
@@ -63,8 +69,8 @@ export async function POST(
       }, { status: 404 });
     }
 
-    // Get book chunks for context
-    const chunks = await getBookChunks(bookId, maxChunks);
+    // Get book chunks up to current reading progress
+    const chunks = await getChunksUpToProgress(bookId, validProgressPercentage);
     
     if (chunks.length === 0) {
       return NextResponse.json({
@@ -73,8 +79,11 @@ export async function POST(
       }, { status: 404 });
     }
 
-    // Process chunks for AI context
-    const contextChunks = processChunksForContext(chunks, maxChunks);
+    console.log(`Q&A: Using ${chunks.length} chunks for ${validProgressPercentage}% progress in book ${bookId}`);
+
+    // Process chunks for AI context (limit to reasonable number for Q&A performance)
+    const maxContextChunks = Math.min(chunks.length, 50); // Reasonable limit for Q&A context
+    const contextChunks = processChunksForContext(chunks, maxContextChunks);
 
     // Get additional context if requested
     let additionalContext = '';
