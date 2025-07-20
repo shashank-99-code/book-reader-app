@@ -34,12 +34,9 @@ export default function LibraryPage() {
     };
   }, [fetchBooks]);
 
-  const handleUpload = (files: FileList | null) => {
-    if (files && files.length > 0) {
-      // TODO: Implement actual upload logic
-      console.log('Selected file:', files[0]);
-    }
-    setModalOpen(false);
+  const handleUpload = () => {
+    // Refresh the books list after upload
+    fetchBooks();
   };
 
   return (

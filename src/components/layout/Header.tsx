@@ -41,13 +41,7 @@ export function Header() {
               Library
               <span className="absolute bottom-0 left-0 w-full h-0.5 bg-pink-500 transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left"></span>
             </Link>
-            <Link
-              href="/upload"
-              className="text-slate-600 hover:text-pink-600 px-3 py-2 rounded-lg text-sm font-medium transition-colors relative group"
-            >
-              Upload
-              <span className="absolute bottom-0 left-0 w-full h-0.5 bg-pink-500 transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left"></span>
-            </Link>
+
           </nav>
 
           {/* User Menu */}
