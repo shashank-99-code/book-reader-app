@@ -73,7 +73,7 @@ export function AIQAPanel({ bookId, bookTitle, currentProgress, isVisible, onClo
   };
 
   return (
-    <div className="h-screen bg-gray-50 dark:bg-gray-800 border-l-2 border-gray-300 dark:border-gray-600 shadow-xl flex flex-col relative z-10">
+    <div className="h-full bg-gray-50 dark:bg-gray-800 border-l-2 border-gray-300 dark:border-gray-600 shadow-xl flex flex-col relative z-10">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center space-x-2">

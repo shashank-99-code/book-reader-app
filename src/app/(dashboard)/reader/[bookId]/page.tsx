@@ -143,11 +143,11 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
 
   return (
     <div 
-      className={`min-h-screen flex ${settings.theme === 'dark' ? 'dark bg-gray-900' : settings.theme === 'sepia' ? 'bg-amber-50' : 'bg-white'}`}
+      className={`h-screen flex ${settings.theme === 'dark' ? 'dark bg-gray-900' : settings.theme === 'sepia' ? 'bg-amber-50' : 'bg-white'}`}
       suppressHydrationWarning
     >
       {/* Main Content Area */}
-      <div className="flex-1">
+      <div className="flex-1 h-full overflow-hidden">
         <BookViewer 
           fileUrl={currentBook.publicUrl} 
           fileType={currentBook.file_type} 
@@ -164,29 +164,31 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
       </div>
 
       {/* Right Sidebar - Summary or Q&A */}
-      <div className={`transition-all duration-300 ease-in-out overflow-hidden border-l border-gray-200 dark:border-gray-700 ${
-        showSummaryPanel || showQAPanel ? 'w-96 shadow-lg' : 'w-0'
+      <div className={`h-full transition-all duration-300 ease-in-out ${
+        showSummaryPanel || showQAPanel ? 'w-96' : 'w-0 overflow-hidden'
       }`}>
-        <div className="w-96 h-full">
-          {showSummaryPanel && (
-            <AISummaryPanel
-              bookId={currentBook.id || resolvedParams.bookId}
-              bookTitle={currentBook.title || 'Untitled Book'}
-              currentProgress={progress || 0}
-              isVisible={showSummaryPanel}
-              onClose={() => setShowSummaryPanel(false)}
-            />
-          )}
-          {showQAPanel && (
-            <AIQAPanel
-              bookId={currentBook.id || resolvedParams.bookId}
-              bookTitle={currentBook.title || 'Untitled Book'}
-              currentProgress={progress || 0}
-              isVisible={showQAPanel}
-              onClose={() => setShowQAPanel(false)}
-            />
-          )}
-        </div>
+        {(showSummaryPanel || showQAPanel) && (
+          <div className="w-96 h-full">
+            {showSummaryPanel && (
+              <AISummaryPanel
+                bookId={currentBook.id || resolvedParams.bookId}
+                bookTitle={currentBook.title || 'Untitled Book'}
+                currentProgress={progress || 0}
+                isVisible={showSummaryPanel}
+                onClose={() => setShowSummaryPanel(false)}
+              />
+            )}
+            {showQAPanel && (
+              <AIQAPanel
+                bookId={currentBook.id || resolvedParams.bookId}
+                bookTitle={currentBook.title || 'Untitled Book'}
+                currentProgress={progress || 0}
+                isVisible={showQAPanel}
+                onClose={() => setShowQAPanel(false)}
+              />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
