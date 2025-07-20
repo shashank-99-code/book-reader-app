@@ -19,6 +19,11 @@ const merriweather = Merriweather({
 export const metadata: Metadata = {
   title: "The Quick Reader",
   description: "Your modern web-based reading companion at thequickreader.com",
+  icons: {
+    icon: "/logo.svg",
+    shortcut: "/logo.svg",
+    apple: "/logo.svg",
+  },
 };
 
 export default function RootLayout({
