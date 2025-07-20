@@ -37,6 +37,7 @@ export default function LibraryPage() {
   const handleUpload = () => {
     // Refresh the books list after upload
     fetchBooks();
+    setModalOpen(false);
   };
 
   return (
@@ -54,7 +55,7 @@ export default function LibraryPage() {
       {loading ? (
         <div className="text-center text-gray-500 py-8">Loading...</div>
       ) : (
-        <BookGrid books={books} />
+        <BookGrid books={books} onUploadClick={() => setModalOpen(true)} />
       )}
     </div>
   );

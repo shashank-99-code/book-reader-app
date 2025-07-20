@@ -4,19 +4,19 @@ import { processBookFile } from '@/lib/services/bookProcessor';
 
 export async function POST(req: NextRequest) {
   try {
-    // Parse the uploaded file (assume multipart/form-data)
-    const formData = await req.formData();
-    const file = formData.get('file') as File;
-    const bookId = formData.get('book_id') as string | null;
-    const userId = formData.get('user_id') as string | null;
-    
-    if (!file) {
-      return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
-    }
-    
-    if (!bookId || !userId) {
-      return NextResponse.json({ error: 'Missing book_id or user_id' }, { status: 400 });
-    }
+  // Parse the uploaded file (assume multipart/form-data)
+  const formData = await req.formData();
+  const file = formData.get('file') as File;
+  const bookId = formData.get('book_id') as string | null;
+  const userId = formData.get('user_id') as string | null;
+  
+  if (!file) {
+    return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+  }
+  
+  if (!bookId || !userId) {
+    return NextResponse.json({ error: 'Missing book_id or user_id' }, { status: 400 });
+  }
 
     console.log('Processing file for AI features:', file.name);
     console.log('Book ID:', bookId);

@@ -148,19 +148,19 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
     >
       {/* Main Content Area */}
       <div className="flex-1 h-full overflow-hidden">
-        <BookViewer 
-          fileUrl={currentBook.publicUrl} 
-          fileType={currentBook.file_type} 
-          bookTitle={currentBook.title || 'Untitled Book'} 
-          bookId={currentBook.id || resolvedParams.bookId}
+      <BookViewer 
+        fileUrl={currentBook.publicUrl} 
+        fileType={currentBook.file_type} 
+        bookTitle={currentBook.title || 'Untitled Book'} 
+        bookId={currentBook.id || resolvedParams.bookId}
           onShowSummary={handleShowSummary}
           onShowQA={handleShowQA}
           showSummaryPanel={showSummaryPanel}
           showQAPanel={showQAPanel}
           currentProgress={progress || 0}
-        />
+      />
         
-        <ReadingProgress />
+      <ReadingProgress />
       </div>
 
       {/* Right Sidebar - Summary or Q&A */}

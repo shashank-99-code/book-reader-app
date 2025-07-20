@@ -3,6 +3,7 @@ import { Inter, Merriweather } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from '@/contexts/AuthContext';
 import { AIProvider } from '@/contexts/AIContext';
+import { ToastContainer } from '@/components/ui/Toast';
 
 const inter = Inter({
   variable: "--font-inter",
@@ -16,8 +17,8 @@ const merriweather = Merriweather({
 });
 
 export const metadata: Metadata = {
-  title: "Book Reader",
-  description: "A modern web-based book reading application",
+  title: "The Quick Reader",
+  description: "Your modern web-based reading companion at thequickreader.com",
 };
 
 export default function RootLayout({
@@ -33,9 +34,10 @@ export default function RootLayout({
       >
         <AuthProvider>
           <AIProvider>
-            {children}
+          {children}
           </AIProvider>
         </AuthProvider>
+        <ToastContainer />
       </body>
     </html>
   );

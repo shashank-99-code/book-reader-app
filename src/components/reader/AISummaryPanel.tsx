@@ -60,7 +60,7 @@ export function AISummaryPanel({
           </div>
           <div>
             <h3 className="font-semibold text-gray-900 dark:text-white">AI Summary</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{Math.round(currentProgress)}% complete</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{currentProgress.toFixed(2)}% complete</p>
           </div>
         </div>
         <Button
@@ -128,7 +128,7 @@ export function AISummaryPanel({
                 <span className="ml-2 text-gray-600 dark:text-gray-400 font-medium">Generating AI Summary...</span>
               </div>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Analyzing {Math.round(currentProgress)}% of your reading progress
+                Analyzing {currentProgress.toFixed(2)}% of your reading progress
               </p>
             </div>
 
@@ -197,7 +197,7 @@ export function AISummaryPanel({
             </div>
             <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Summary covers the first {Math.round(state.summaryProgress)}% of &quot;{bookTitle}&quot;
+                Summary covers the first {state.summaryProgress.toFixed(2)}% of &quot;{bookTitle}&quot;
               </p>
             </div>
           </div>

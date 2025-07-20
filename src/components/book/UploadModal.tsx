@@ -29,12 +29,12 @@ export function UploadModal({ open, onClose, onUpload }: UploadModalProps) {
         <h2 className="text-xl font-semibold mb-6 text-gray-900">Upload Book</h2>
         <BookUploader onUpload={handleUploadComplete} />
         <div className="mt-6 flex justify-end">
-          <button
+        <button
             className="px-4 py-2 text-gray-600 hover:text-gray-800"
             onClick={onClose}
-          >
+        >
             Close
-          </button>
+        </button>
         </div>
       </div>
     </div>

@@ -8,10 +8,10 @@ export async function extractBookMetadata(file: File): Promise<{
     // PDF: extract metadata including page count and cover image
     const pdfjsLib = await import('pdfjs-dist');
     
-    // Use version 4.8.69 for both API and worker consistency
+    // Use local worker for consistency
     if (typeof window !== 'undefined') {
-      // Start with CDN 5.2.133 for consistency
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
+      // Use local worker file
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
     }
     
     // Function to try extracting with fallback

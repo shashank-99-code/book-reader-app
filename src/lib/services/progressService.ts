@@ -19,6 +19,38 @@ export async function getReadingProgress(bookId: string): Promise<ReadingProgres
   }
 }
 
+export async function updateReadingProgressPercentage(
+  bookId: string,
+  progressPercentage: number
+): Promise<ReadingProgress | null> {
+  try {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+
+    // Round to 2 decimal places for storage
+    const roundedProgress = Math.round(progressPercentage * 100) / 100;
+    
+    const upsertObj = {
+      user_id: user.id,
+      book_id: bookId,
+      progress_percentage: roundedProgress,
+      last_read_at: new Date().toISOString()
+    };
+
+    const { data, error } = await supabase
+      .from('reading_progress')
+      .upsert(upsertObj, { onConflict: 'user_id,book_id' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error updating reading progress percentage:', error);
+    return null;
+  }
+}
+
 export async function updateReadingProgress(
   bookId: string,
   currentPage: number,

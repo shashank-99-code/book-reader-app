@@ -32,6 +32,7 @@ interface ReadingSettings {
 const EPUBReader: React.FC<EPUBReaderProps> = ({ 
   fileUrl, 
   bookTitle = "Book", 
+  bookId,
   onShowSummary,
   onShowQA,
   showSummaryPanel = false,
@@ -75,7 +76,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
   const [isSearching, setIsSearching] = useState(false)
   const [currentSearchIndex, setCurrentSearchIndex] = useState(-1)
 
-  const { updateProgress, progress: contextProgress } = useReader();
+  const { updateProgress, updateProgressPercentage, progress: contextProgress } = useReader();
 
   // Refs for persistence
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -96,11 +97,11 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
       clearTimeout(updateProgressTimeoutRef.current);
     }
     updateProgressTimeoutRef.current = setTimeout(() => {
-      console.log('Saving progress:', progressPercentage.toFixed(1) + '%');
-      // ReaderContext.updateProgress expects (page, totalPages). We pass percentage as "page" and 100 as the total for a 0-100 scale.
-      updateProgress(Math.round(progressPercentage), 100);
+      console.log('Saving progress:', progressPercentage.toFixed(2) + '%');
+      // Use decimal-precision progress tracking for better accuracy
+      updateProgressPercentage(progressPercentage);
     }, 1000); // 1 second debounce
-  }, [updateProgress]);
+  }, [updateProgressPercentage]);
 
   // Auto-hide hint after 5 seconds
   useEffect(() => {
@@ -813,27 +814,65 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
     }
   }, [rendition])
 
-  // Search functionality
+  // Enhanced search functionality with server-side support
   const performSearch = async (query: string) => {
-    if (!book || !query.trim()) {
+    if (!query.trim()) {
       setSearchResults([])
       return
     }
 
     setIsSearching(true)
     try {
-      console.log("Starting search for:", query)
+      console.log("Starting enhanced search for:", query)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const results: any[] = []
+      let results: any[] = []
       
-      // Check if book has search method
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if (typeof (book as any).search === 'function') {
-        console.log("Using book.search method")
+      // Primary: Server-side search through book chunks (most comprehensive)
+      if (bookId) {
+        try {
+          const response = await fetch(`/api/books/${bookId}/search`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'same-origin', // Include cookies for authentication
+            body: JSON.stringify({
+              query: query.trim(),
+              caseSensitive: false,
+              wholeWords: false,
+              maxResults: 50,
+            }),
+          });
+
+          if (response.ok) {
+            const searchData = await response.json();
+            if (searchData.success && searchData.results) {
+              console.log("Server search found", searchData.results.length, "results");
+              results = searchData.results.map((result: any, index: number) => ({
+                excerpt: result.matches[0]?.highlighted || result.text_content.substring(0, 200) + '...',
+                href: `#chunk-${result.chunk_index}`, // Custom href for chunk navigation
+                chapter: result.chapter_title || `Section ${result.chunk_index + 1}`,
+                index: index,
+                chunkIndex: result.chunk_index,
+                pageStart: result.page_start,
+                pageEnd: result.page_end,
+                matches: result.matches?.length || 0,
+                isServerResult: true
+              }));
+            }
+          }
+        } catch (serverError) {
+          console.warn("Server search failed, falling back to client search:", serverError);
+        }
+      }
+      
+      // Fallback 1: EPUB.js built-in search (if server search failed or no results)
+      if (results.length === 0 && book && typeof (book as any).search === 'function') {
+        console.log("Using EPUB.js search method")
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const searchResults = await (book as any).search(query)
-          console.log("Book search results:", searchResults)
+          console.log("EPUB search found", searchResults.length, "results")
           
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           searchResults.forEach((result: any, index: number) => {
@@ -841,16 +880,18 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
               excerpt: result.excerpt || result.text || query,
               href: result.href || result.cfi,
               chapter: result.section || `Result ${index + 1}`,
-              index: index
+              index: index,
+              matches: 1,
+              isServerResult: false
             })
           })
         } catch (searchError) {
-          console.warn("Book search method failed:", searchError)
+          console.warn("EPUB search method failed:", searchError)
         }
       }
       
-      // Fallback: Try to search through navigation/chapters
-      if (results.length === 0 && book.navigation && book.navigation.toc) {
+      // Fallback 2: Search through table of contents
+      if (results.length === 0 && book?.navigation?.toc) {
         console.log("Searching through table of contents")
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         book.navigation.toc.forEach((chapter: any) => {
@@ -859,13 +900,15 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
               excerpt: `Chapter: ${chapter.label}`,
               href: chapter.href,
               chapter: chapter.label,
-              index: results.length
+              index: results.length,
+              matches: 1,
+              isServerResult: false
             })
           }
         })
       }
       
-      console.log("Search completed. Found", results.length, "results")
+      console.log("Search completed. Found", results.length, "total results")
       setSearchResults(results)
       setCurrentSearchIndex(results.length > 0 ? 0 : -1)
     } catch (error) {
@@ -876,15 +919,208 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const goToSearchResult = (result: any, index: number) => {
-    if (rendition) {
-      setCurrentSearchIndex(index)
-      rendition.display(result.href).then(() => {
-        setShowSearch(false)
-      })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const goToSearchResult = async (result: any, index: number) => {
+    if (!rendition || !book) return;
+    
+    setCurrentSearchIndex(index);
+    console.log("Navigating to search result:", result);
+    
+    try {
+      if (result.isServerResult) {
+        // For server search results, try to find the exact text using EPUB.js search
+        console.log("Looking for server search result text in EPUB...");
+        
+        // Extract a unique portion of the search query for precise location
+        const searchText = extractSearchableText(result.excerpt, searchQuery, result.matches);
+        console.log("Extracted search text:", searchText);
+        
+        if (searchText && typeof (book as any).search === 'function') {
+          try {
+            // Use EPUB.js to find the exact location of this text
+            const searchResults = await (book as any).search(searchText, 5);
+            console.log("EPUB.js found locations:", searchResults);
+            
+            if (searchResults && searchResults.length > 0) {
+              // Navigate to the first matching location
+              const location = searchResults[0];
+              console.log("Navigating to exact location:", location.cfi);
+              await rendition.display(location.cfi);
+              
+              // Highlight after navigation
+              setTimeout(() => {
+                clearHighlights();
+                highlightSearchTerm(searchQuery);
+              }, 300);
+              
+              setShowSearch(false);
+              return;
+            }
+          } catch (searchError) {
+            console.warn("EPUB.js search failed for server result:", searchError);
+          }
+        }
+        
+        // Fallback: Try text-based navigation through spine  
+        await navigateByTextSearch(searchText || searchQuery, result);
+        
+      } else {
+        // For epub.js search results, use the original href
+        console.log("Navigating to epub.js search result:", result.href);
+        await rendition.display(result.href);
+      }
+      
+      setShowSearch(false);
+    } catch (error) {
+      console.error("Navigation failed:", error);
+      // Show user-friendly error
+      alert("Could not navigate to this location. The text might be in a different format.");
     }
-  }
+  };
+
+  // Extract a clean, searchable portion of text
+  const extractSearchableText = (excerpt: string, originalQuery: string, matches?: any[]): string => {
+    // If we have highlighted matches, try to use the context from the first match
+    if (matches && matches.length > 0 && matches[0].context) {
+      const contextText = matches[0].context.replace(/<[^>]*>/g, '').trim();
+      if (contextText.length > 20) {
+        console.log("Using match context for search:", contextText.substring(0, 100));
+        return contextText;
+      }
+    }
+    
+    // Remove HTML tags and get clean text
+    const cleanExcerpt = excerpt.replace(/<[^>]*>/g, '').trim();
+    
+    // Try to find a unique 10-15 word phrase around the search term
+    const words = cleanExcerpt.split(/\s+/);
+    const queryWords = originalQuery.toLowerCase().split(/\s+/);
+    
+    // Find where the query appears in the excerpt
+    let startIdx = 0;
+    for (let i = 0; i <= words.length - queryWords.length; i++) {
+      const phrase = words.slice(i, i + queryWords.length).join(' ').toLowerCase();
+      if (phrase.includes(queryWords[0])) {
+        startIdx = Math.max(0, i - 5); // Start 5 words before
+        break;
+      }
+    }
+    
+    // Extract a 10-15 word phrase for searching
+    const endIdx = Math.min(words.length, startIdx + 15);
+    const searchPhrase = words.slice(startIdx, endIdx).join(' ');
+    
+    console.log("Extracted search phrase:", searchPhrase);
+    return searchPhrase;
+  };
+
+  // Navigate by searching through spine items for text
+  const navigateByTextSearch = async (searchText: string, result: any) => {
+    if (!book || !rendition) return;
+    
+    console.log("Trying text-based navigation through spine...");
+    const spine = book.spine as any;
+    
+    if (!spine || !spine.items) {
+      console.warn("Cannot access spine items");
+      return;
+    }
+    
+    // Try searching through each spine item
+    for (let i = 0; i < spine.items.length; i++) {
+      const spineItem = spine.items[i];
+      try {
+        console.log(`Checking spine item ${i}: ${spineItem.href}`);
+        
+        // Load the content of this spine item
+        const doc = await spineItem.load();
+        const textContent = doc.textContent || '';
+        
+        // Check if our search text appears in this section
+        if (textContent.toLowerCase().includes(searchText.toLowerCase())) {
+          console.log(`Found text in spine item ${i}, navigating...`);
+          await rendition.display(spineItem.href);
+          
+          // Highlight after navigation
+          setTimeout(() => {
+            clearHighlights();
+            highlightSearchTerm(searchQuery);
+          }, 500);
+          
+          return;
+        }
+      } catch (error) {
+        console.warn(`Failed to check spine item ${i}:`, error);
+        continue;
+      }
+    }
+    
+    console.warn("Could not find text in any spine item, using fallback");
+    // Final fallback: navigate to estimated location
+    if (result.chunkIndex !== undefined) {
+      const estimatedSpineIndex = Math.min(
+        Math.floor(result.chunkIndex / 2), 
+        spine.items.length - 1
+      );
+      await rendition.display(spine.items[estimatedSpineIndex].href);
+    }
+  };
+
+  
+
+    // Helper function to highlight search terms on the current page
+  const highlightSearchTerm = (searchTerm: string) => {
+    if (!rendition || !searchTerm) return;
+    
+    try {
+      // Get the current iframe document
+      const iframe = (rendition as any).manager?.container?.querySelector('iframe');
+      if (iframe && iframe.contentDocument) {
+        const doc = iframe.contentDocument;
+        
+        // Find all text content and highlight matches
+        const bodyText = doc.body.innerHTML;
+        const searchWords = searchTerm.toLowerCase().split(/\s+/).filter(word => word.length > 2);
+        
+        let highlightedText = bodyText;
+        searchWords.forEach(word => {
+          // Escape special regex characters
+          const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(`(\\b${escapedWord}\\b)`, 'gi');
+          highlightedText = highlightedText.replace(regex, '<mark style="background: yellow; color: black; padding: 2px;">$1</mark>');
+        });
+        
+        // Only update if we found matches
+        if (highlightedText !== bodyText) {
+          doc.body.innerHTML = highlightedText;
+          console.log("Highlighted search terms on page");
+        }
+      }
+    } catch (error) {
+      console.warn("Text highlighting failed:", error);
+    }
+  };
+
+     // Helper function to clear existing highlights
+  const clearHighlights = () => {
+    if (!rendition) return;
+    
+    try {
+      const iframe = (rendition as any).manager?.container?.querySelector('iframe');
+      if (iframe && iframe.contentDocument) {
+        const doc = iframe.contentDocument;
+        
+        // Simple approach: reload the current location to clear highlights
+        const currentLocation = rendition.currentLocation() as any;
+        if (currentLocation && currentLocation.start) {
+          console.log("Clearing highlights by reloading current location");
+          rendition.display(currentLocation.start.cfi);
+        }
+      }
+    } catch (error) {
+      console.warn("Clearing highlights failed:", error);
+    }
+  };
 
   const nextSearchResult = () => {
     if (searchResults.length > 0) {
@@ -1547,27 +1783,51 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
                       onClick={() => goToSearchResult(result, index)}
                       className={`w-full text-left p-3 rounded-lg border transition-colors ${
                         index === currentSearchIndex
-                          ? "bg-blue-50 border-blue-200"
+                          ? "bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-700"
                           : settings.theme === "dark"
                             ? "border-gray-600 hover:bg-gray-700"
                             : "border-gray-200 hover:bg-gray-50"
                       }`}
                     >
-                      <div className={`text-sm font-medium mb-1 ${
-                        settings.theme === "dark" ? "text-gray-300" : "text-gray-600"
-                      }`}>
-                        {result.chapter}
+                      <div className="flex items-center justify-between mb-1">
+                        <div className={`text-sm font-medium ${
+                          settings.theme === "dark" ? "text-gray-300" : "text-gray-600"
+                        }`}>
+                          {result.chapter}
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {result.matches > 1 && (
+                            <span className={`text-xs px-2 py-1 rounded-full ${
+                              settings.theme === "dark" 
+                                ? "bg-gray-700 text-gray-300" 
+                                : "bg-gray-100 text-gray-600"
+                            }`}>
+                              {result.matches} matches
+                            </span>
+                          )}
+                          {result.isServerResult && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                              Full-text
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className={`text-sm leading-relaxed ${
                         settings.theme === "dark" ? "text-white" : "text-gray-900"
                       }`}>
-                        {result.excerpt.split(new RegExp(`(${searchQuery})`, 'gi')).map((part: string, i: number) => 
-                          part.toLowerCase() === searchQuery.toLowerCase() ? (
-                            <mark key={i} className="bg-yellow-200 text-gray-900 px-1 rounded">
-                              {part}
-                            </mark>
-                          ) : (
-                            part
+                        {result.isServerResult && result.excerpt.includes('<mark') ? (
+                          // Server-side highlighted results
+                          <div dangerouslySetInnerHTML={{ __html: result.excerpt }} />
+                        ) : (
+                          // Client-side highlighting
+                          result.excerpt.split(new RegExp(`(${searchQuery})`, 'gi')).map((part: string, i: number) => 
+                            part.toLowerCase() === searchQuery.toLowerCase() ? (
+                              <mark key={i} className="bg-yellow-200 text-gray-900 px-1 rounded dark:bg-yellow-600 dark:text-white">
+                                {part}
+                              </mark>
+                            ) : (
+                              part
+                            )
                           )
                         )}
                       </div>

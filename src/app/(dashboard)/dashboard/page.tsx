@@ -34,11 +34,9 @@ export default function DashboardPage() {
     };
   }, [fetchBooks]);
 
-  const handleUpload = (files: FileList | null) => {
-    if (files && files.length > 0) {
-      // TODO: Implement actual upload logic
-      console.log('Selected file:', files[0]);
-    }
+  const handleUpload = () => {
+    // Refresh the books list after upload
+    fetchBooks();
     setModalOpen(false);
   };
 
@@ -53,11 +51,12 @@ export default function DashboardPage() {
           Upload files
         </button>
       </div>
+
       <UploadModal open={modalOpen} onClose={() => setModalOpen(false)} onUpload={handleUpload} />
       {loading ? (
         <div className="text-center text-gray-500 py-8">Loading...</div>
       ) : (
-        <BookGrid books={books} />
+        <BookGrid books={books} onUploadClick={() => setModalOpen(true)} />
       )}
     </div>
   );

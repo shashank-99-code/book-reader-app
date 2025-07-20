@@ -10,6 +10,7 @@ interface AuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -18,14 +19,18 @@ export const AuthContext = createContext<AuthContextType>({
   loading: true,
   signIn: async () => {},
   signUp: async () => {},
+  signInWithGoogle: async () => {},
   signOut: async () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const router = useRouter();
   const supabase = createClient();
+  const router = useRouter();
+
+  // Track which users we've already attempted template copying for
+  const [processedUsers] = useState(new Set<string>());
 
   useEffect(() => {
     // Get initial session
@@ -37,15 +42,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       setUser(session?.user ?? null);
       setLoading(false);
+      
+      // Only run template copying on SIGNED_IN event for new users
+      if (event === 'SIGNED_IN' && session?.user) {
+        const userId = session.user.id;
+        const isNewUser = new Date(session.user.created_at).getTime() > Date.now() - 30000; // 30 seconds ago
+        
+        // Check if this is a newly created user AND we haven't processed them yet
+        if (isNewUser && !processedUsers.has(userId)) {
+          // Mark this user as processed to prevent duplicate attempts
+          processedUsers.add(userId);
+          
+          // Copy default books for new users
+          setTimeout(async () => {
+            try {
+              // Use server-side API for template copying (bypasses RLS)
+              const response = await fetch('/api/copy-templates', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ userId }),
+              });
+              
+              const result = await response.json();
+              
+              if (result.success && result.booksAdded > 0) {
+                // Refresh the page to show new books
+                window.location.reload();
+              }
+            } catch (error) {
+              console.error('Failed to copy default books:', error);
+            }
+          }, 1500);
+        }
+      }
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, [supabase]);
+  }, [supabase, router, processedUsers]);
 
   const signIn = async (email: string, password: string) => {
     try {
@@ -75,6 +115,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const signInWithGoogle = async () => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`,
+        },
+      });
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error signing in with Google:', error);
+      throw error;
+    }
+  };
+
   const signOut = async () => {
     try {
       const { error } = await supabase.auth.signOut({ scope: 'local' });
@@ -87,7 +142,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signUp, signInWithGoogle, signOut }}>
       {children}
     </AuthContext.Provider>
   );

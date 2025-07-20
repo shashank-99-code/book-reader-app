@@ -3,7 +3,7 @@
 import type { Book } from "@/lib/types/book"
 import { BookCard } from "./BookCard"
 
-export function BookGrid({ books, onBookClick }: { books: Book[]; onBookClick?: (book: Book) => void }) {
+export function BookGrid({ books, onBookClick, onUploadClick }: { books: Book[]; onBookClick?: (book: Book) => void; onUploadClick?: () => void }) {
   if (!books.length) {
     return (
       <div className="text-center py-16">
@@ -20,7 +20,10 @@ export function BookGrid({ books, onBookClick }: { books: Book[]; onBookClick?: 
           </div>
           <h3 className="text-xl font-semibold text-slate-900 mb-2">No books yet</h3>
           <p className="text-slate-600 mb-6">Start building your digital library by uploading your first book.</p>
-          <button className="bg-gradient-to-r from-pink-500 to-pink-400 text-white px-6 py-3 rounded-xl font-medium hover:from-pink-600 hover:to-pink-500 transition-all duration-200 shadow-sm hover:shadow-md">
+          <button 
+            onClick={onUploadClick}
+            className="bg-gradient-to-r from-pink-500 to-pink-400 text-white px-6 py-3 rounded-xl font-medium hover:from-pink-600 hover:to-pink-500 transition-all duration-200 shadow-sm hover:shadow-md"
+          >
             Upload Your First Book
           </button>
         </div>

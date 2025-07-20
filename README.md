@@ -1,4 +1,4 @@
-# Book Reader App
+# The Quick Reader
 
 A modern web-based book reading application built with Next.js and Supabase.
 

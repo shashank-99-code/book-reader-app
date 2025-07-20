@@ -51,11 +51,11 @@ export function ReaderControls({
 
       {/* Reader Settings */}
       <div className="bg-white rounded-lg shadow-lg p-4">
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="p-2 rounded-full hover:bg-gray-100"
-          aria-label="Reader settings"
-        >
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="p-2 rounded-full hover:bg-gray-100"
+        aria-label="Reader settings"
+      >
         <svg
           xmlns="http://www.w3.org/2000/svg"
           className="h-6 w-6"

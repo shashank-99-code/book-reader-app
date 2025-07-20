@@ -1,8 +1,4 @@
 import { createClient } from '@/lib/supabase/server';
-import * as pdfjsLib from 'pdfjs-dist';
-
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 export interface BookChunk {
   chunk_index: number;
@@ -18,33 +14,204 @@ export interface ProcessingResult {
   error?: string;
 }
 
+
 /**
- * Extract text content from PDF file
+ * Simple PDF text extraction using basic PDF structure parsing
  */
-export async function extractTextFromPDF(fileBuffer: ArrayBuffer): Promise<string[]> {
+async function extractTextWithBasicPDFParser(fileBuffer: ArrayBuffer): Promise<string[]> {
   try {
-    const pdf = await pdfjsLib.getDocument({ data: fileBuffer }).promise;
-    const pages: string[] = [];
+    console.log('Basic PDF Parser: Starting text extraction...');
     
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
+    const buffer = Buffer.from(fileBuffer);
+    const pdfString = buffer.toString('binary');
+    
+    // Basic PDF text extraction using RegExp patterns
+    const textObjects: string[] = [];
+    
+    // Look for text objects in PDF streams
+    const streamRegex = /stream\s*\n([\s\S]*?)\nendstream/g;
+    const textRegex = /\(([^)]*)\)\s*Tj/g;
+    const simpleTextRegex = /\(([^)]+)\)/g;
+    
+    let match;
+    
+    // Extract from stream objects
+    while ((match = streamRegex.exec(pdfString)) !== null) {
+      const streamContent = match[1];
       
-      const pageText = textContent.items
-        .map((item) => (item as { str?: string }).str || '')
-        .join(' ')
-        .trim();
+      // Look for text drawing operations
+      let textMatch;
+      while ((textMatch = textRegex.exec(streamContent)) !== null) {
+        const text = textMatch[1];
+        if (text && text.length > 1) {
+          textObjects.push(text);
+        }
+      }
       
-      if (pageText) {
-        pages.push(pageText);
+      // Also look for simple parenthesized text
+      while ((textMatch = simpleTextRegex.exec(streamContent)) !== null) {
+        const text = textMatch[1];
+        if (text && text.length > 2) {
+          textObjects.push(text);
+        }
       }
     }
     
+    // If no text objects found, try another approach
+    if (textObjects.length === 0) {
+      // Look for text outside streams (sometimes text is not in streams)
+      const directTextRegex = /\(([^)]{3,})\)\s*Tj/g;
+      while ((match = directTextRegex.exec(pdfString)) !== null) {
+        const text = match[1];
+        if (text && text.trim().length > 0) {
+          textObjects.push(text);
+        }
+      }
+    }
+    
+    if (textObjects.length === 0) {
+      throw new Error('No text content found using basic parser');
+    }
+    
+    // Clean and combine text objects
+    const cleanedTexts = textObjects
+      .map(text => text.replace(/\\[rn]/g, ' ').trim())
+      .filter(text => text.length > 0);
+    
+    // Group into pages (simple approach - every 20-50 text objects per page)
+    const pages: string[] = [];
+    const textsPerPage = Math.max(20, Math.ceil(cleanedTexts.length / 50)); // Assume ~50 pages max
+    
+    for (let i = 0; i < cleanedTexts.length; i += textsPerPage) {
+      const pageTexts = cleanedTexts.slice(i, i + textsPerPage);
+      const pageContent = pageTexts.join(' ').trim();
+      
+      if (pageContent.length > 20) {
+        pages.push(pageContent);
+      }
+    }
+    
+    console.log(`Basic PDF Parser: Extracted ${pages.length} pages from ${textObjects.length} text objects`);
     return pages;
+    
   } catch (error) {
-    console.error('Error extracting text from PDF:', error);
-    throw new Error('Failed to extract text from PDF');
+    console.error('Basic PDF parser failed:', error);
+    throw error;
   }
+}
+
+/**
+ * Extract text content from PDF file with multiple fallback strategies
+ */
+export async function extractTextFromPDF(fileBuffer: ArrayBuffer): Promise<string[]> {
+  console.log('PDF Processing: Starting multi-strategy text extraction...');
+  
+  // Strategy 1: Try pdf-parse if available
+  try {
+    console.log('PDF Processing: Attempting pdf-parse extraction...');
+    
+    let pdfParse: any;
+    try {
+      // Try dynamic import first (safer for webpack)
+      const pdfParseModule = await import('pdf-parse');
+      pdfParse = pdfParseModule.default || pdfParseModule;
+    } catch (importError) {
+      console.log('Dynamic import failed, trying require...');
+      // Fallback to require
+      pdfParse = require('pdf-parse');
+    }
+    
+    if (pdfParse && typeof pdfParse === 'function') {
+      const buffer = Buffer.from(fileBuffer);
+      console.log(`PDF Processing: Processing buffer of ${buffer.length} bytes with pdf-parse`);
+      
+      // Call pdf-parse with minimal options
+      const data = await pdfParse(buffer, { max: 0 });
+      console.log(`PDF Processing: pdf-parse extracted text from ${data.numpages} pages`);
+      
+      const fullText = data.text;
+      if (fullText && fullText.trim().length > 0) {
+        console.log(`PDF Processing: pdf-parse extracted ${fullText.length} characters`);
+        
+        // Simple page splitting based on length
+        const pages: string[] = [];
+        const avgCharsPerPage = Math.ceil(fullText.length / Math.max(data.numpages, 1));
+        
+        for (let i = 0; i < data.numpages; i++) {
+          const start = i * avgCharsPerPage;
+          const end = Math.min((i + 1) * avgCharsPerPage, fullText.length);
+          const pageText = fullText.slice(start, end).trim();
+          
+          if (pageText.length > 20) {
+            pages.push(pageText);
+          }
+        }
+        
+        if (pages.length > 0) {
+          console.log(`PDF Processing: pdf-parse successfully created ${pages.length} pages`);
+          return pages;
+        }
+      }
+    }
+  } catch (pdfParseError) {
+    console.warn('PDF Processing: pdf-parse failed:', pdfParseError);
+  }
+  
+  // Strategy 2: Try basic PDF parser as fallback
+  try {
+    console.log('PDF Processing: Attempting basic PDF parsing...');
+    const pages = await extractTextWithBasicPDFParser(fileBuffer);
+    
+    if (pages.length > 0) {
+      console.log(`PDF Processing: Basic parser successfully extracted ${pages.length} pages`);
+      return pages;
+    }
+  } catch (basicParseError) {
+    console.warn('PDF Processing: Basic parser failed:', basicParseError);
+  }
+  
+  // Strategy 3: Try to extract any readable text from the PDF binary
+  try {
+    console.log('PDF Processing: Attempting binary text extraction...');
+    
+    const buffer = Buffer.from(fileBuffer);
+    const content = buffer.toString('binary');
+    
+    // Look for readable text patterns in the binary content
+    const textMatches = content.match(/[a-zA-Z][a-zA-Z0-9\s.,!?;:'"()-]{10,}/g);
+    
+    if (textMatches && textMatches.length > 0) {
+      const extractedText = textMatches
+        .filter(text => text.trim().length > 20)
+        .join(' ')
+        .trim();
+      
+      if (extractedText.length > 100) {
+        console.log(`PDF Processing: Binary extraction found ${extractedText.length} characters`);
+        
+        // Split into reasonable chunks
+        const chunkSize = Math.max(1000, Math.ceil(extractedText.length / 10));
+        const pages: string[] = [];
+        
+        for (let i = 0; i < extractedText.length; i += chunkSize) {
+          const chunk = extractedText.slice(i, i + chunkSize).trim();
+          if (chunk.length > 50) {
+            pages.push(chunk);
+          }
+        }
+        
+        if (pages.length > 0) {
+          console.log(`PDF Processing: Binary extraction created ${pages.length} pages`);
+          return pages;
+        }
+      }
+    }
+  } catch (binaryError) {
+    console.warn('PDF Processing: Binary extraction failed:', binaryError);
+  }
+  
+  // All strategies failed
+  throw new Error('PDF text extraction failed - document may be image-based, encrypted, or corrupted. All extraction methods failed.');
 }
 
 /**
@@ -620,14 +787,40 @@ export function splitIntoPages(text: string, charactersPerPage: number = 3000): 
 }
 
 /**
- * Create chunks from extracted text pages
+ * Normalize and clean text for better searchability
+ */
+function normalizeTextForSearch(text: string): string {
+  return text
+    // Remove extra whitespace and normalize line breaks
+    .replace(/\s+/g, ' ')
+    // Remove common formatting artifacts
+    .replace(/[\u00A0\u1680\u180E\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, ' ')
+    // Remove invisible characters and control characters
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, '')
+    // Normalize quotes and dashes
+    .replace(/[""]/g, '"')
+    .replace(/['']/g, "'")
+    .replace(/[–—]/g, '-')
+    // Remove zero-width characters
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim();
+}
+
+/**
+ * Create chunks from extracted text pages with enhanced text normalization
  */
 export function createChunks(pages: string[], chunkSize: number = 500): BookChunk[] {
   const chunks: BookChunk[] = [];
   let chunkIndex = 0;
   
   for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
-    const pageContent = pages[pageIndex];
+    // Normalize the page content for better searchability
+    const pageContent = normalizeTextForSearch(pages[pageIndex]);
+    
+    if (!pageContent || pageContent.length < 10) {
+      continue; // Skip pages with minimal content
+    }
+    
     const words = pageContent.split(/\s+/).filter(word => word.length > 0);
     
     // Split page into chunks
@@ -639,14 +832,17 @@ export function createChunks(pages: string[], chunkSize: number = 500): BookChun
       const testWordCount = testChunk.split(/\s+/).length;
       
       if (testWordCount > chunkSize && currentChunk) {
-        // Create chunk
-        chunks.push({
-          chunk_index: chunkIndex++,
-          content: currentChunk.trim(),
-          page_start: pageIndex + 1,
-          page_end: pageIndex + 1,
-          word_count: wordCount,
-        });
+        // Create chunk with normalized content
+        const normalizedChunk = normalizeTextForSearch(currentChunk);
+        if (normalizedChunk.length > 20) { // Only store chunks with substantial content
+          chunks.push({
+            chunk_index: chunkIndex++,
+            content: normalizedChunk,
+            page_start: pageIndex + 1,
+            page_end: pageIndex + 1,
+            word_count: wordCount,
+          });
+        }
         
         currentChunk = word;
         wordCount = 1;
@@ -658,13 +854,16 @@ export function createChunks(pages: string[], chunkSize: number = 500): BookChun
     
     // Add remaining content as a chunk
     if (currentChunk.trim()) {
-      chunks.push({
-        chunk_index: chunkIndex++,
-        content: currentChunk.trim(),
-        page_start: pageIndex + 1,
-        page_end: pageIndex + 1,
-        word_count: wordCount,
-      });
+      const normalizedChunk = normalizeTextForSearch(currentChunk);
+      if (normalizedChunk.length > 20) { // Only store chunks with substantial content
+        chunks.push({
+          chunk_index: chunkIndex++,
+          content: normalizedChunk,
+          page_start: pageIndex + 1,
+          page_end: pageIndex + 1,
+          word_count: wordCount,
+        });
+      }
     }
   }
   

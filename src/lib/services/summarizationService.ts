@@ -152,8 +152,8 @@ export async function getProgressSummary(
   try {
     const { userId, bookId, progressPercentage, bookTitle, forceRefresh } = request;
     
-    // Round progress to nearest 5% for caching efficiency
-    const roundedProgress = Math.round(progressPercentage / 5) * 5;
+    // Round progress to nearest 0.5% for fine granularity while maintaining cache efficiency
+    const roundedProgress = Math.round(progressPercentage * 2) / 2;
     
     // Check cache first (unless forced refresh)
     if (!forceRefresh) {

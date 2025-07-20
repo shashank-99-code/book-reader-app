@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Book } from '@/lib/types/book';
 import type { Bookmark } from "@/lib/types/book"
-import { getReadingProgress, updateReadingProgress } from "@/lib/services/progressService"
+import { getReadingProgress, updateReadingProgress, updateReadingProgressPercentage } from "@/lib/services/progressService"
 
 // Extended Book type with publicUrl
 interface BookWithUrl extends Book {
@@ -33,6 +33,7 @@ interface ReaderContextType {
   error: string | null
   setCurrentBook: (book: BookWithUrl | null) => void
   updateProgress: (page: number, totalPages: number) => Promise<void>
+  updateProgressPercentage: (progressPercentage: number) => Promise<void>
   addBookmark: (page: number, note?: string) => Promise<void>
   removeBookmark: (bookmarkId: string) => Promise<void>
   updateSettings: (settings: Partial<ReaderSettings>) => void
@@ -110,6 +111,29 @@ export function ReaderProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentBook]);
 
+  const updateProgressPercentage = useCallback(async (progressPercentage: number) => {
+    if (!currentBook) return;
+
+    try {
+      const updatedProgress = await updateReadingProgressPercentage(
+        currentBook.id,
+        progressPercentage
+      );
+      
+      if (updatedProgress) {
+        setProgress(updatedProgress.progress_percentage);
+        // For percentage-based progress, estimate page number
+        if (currentBook.total_pages) {
+          const estimatedPage = Math.round((progressPercentage / 100) * currentBook.total_pages);
+          setCurrentPage(Math.max(1, estimatedPage));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to update progress percentage:', err);
+      // Don't set error state to avoid re-renders
+    }
+  }, [currentBook]);
+
   const addBookmark = useCallback(async (page: number, note?: string) => {
     if (!currentBook) return;
 
@@ -176,6 +200,7 @@ export function ReaderProvider({ children }: { children: React.ReactNode }) {
     error,
     setCurrentBook,
     updateProgress,
+    updateProgressPercentage,
     addBookmark,
     removeBookmark,
     updateSettings

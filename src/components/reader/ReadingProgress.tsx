@@ -15,7 +15,7 @@ export default function ReadingProgress() {
             Page {currentPage} of {currentBook.total_pages || '?'}
           </span>
           <span className="text-sm text-gray-600 dark:text-gray-300">
-            {Math.round(progress)}%
+            {progress.toFixed(2)}%
           </span>
         </div>
         <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">

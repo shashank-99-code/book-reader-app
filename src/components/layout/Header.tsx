@@ -17,31 +17,21 @@ export function Header() {
         <div className="flex justify-between items-center h-16">
           {/* Logo/Brand */}
           <div className="flex-shrink-0">
-            <Link href="/" className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-gradient-to-br from-pink-500 to-pink-400 rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-                  />
-                </svg>
+            <Link href="/dashboard" className="flex items-center space-x-2">
+              <div className="w-8 h-8 flex items-center justify-center">
+                <img 
+                  src="/logo.svg" 
+                  alt="The Quick Reader Logo" 
+                  className="w-full h-full object-contain"
+                />
               </div>
-              <span className="text-xl font-semibold text-slate-900">BookShelf</span>
+              <span className="text-xl font-bold text-slate-900 font-serif tracking-wide">The Quick Reader</span>
             </Link>
           </div>
 
           {/* Navigation */}
           <nav className="hidden md:flex space-x-8">
-            <Link
-              href="/library"
-              className="text-slate-600 hover:text-pink-600 px-3 py-2 rounded-lg text-sm font-medium transition-colors relative group"
-            >
-              Library
-              <span className="absolute bottom-0 left-0 w-full h-0.5 bg-pink-500 transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left"></span>
-            </Link>
-
+            {/* Navigation links will go here */}
           </nav>
 
           {/* User Menu */}

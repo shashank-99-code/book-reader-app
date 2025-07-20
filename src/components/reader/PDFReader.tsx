@@ -6,7 +6,7 @@ import { useReader } from '@/contexts/ReaderContext';
 import { getBookById } from '@/lib/services/bookService';
 
 // Set up PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
@@ -15,11 +15,25 @@ interface PDFReaderProps {
   fileUrl: string;
   bookTitle?: string;
   bookId: string;
+  onShowSummary?: () => void;
+  onShowQA?: () => void;
+  showSummaryPanel?: boolean;
+  showQAPanel?: boolean;
+  currentProgress?: number;
 }
 
 
 
-export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProps) {
+export function PDFReader({ 
+  fileUrl, 
+  bookTitle = "Book", 
+  bookId,
+  onShowSummary,
+  onShowQA,
+  showSummaryPanel = false,
+  showQAPanel = false,
+  currentProgress = 0 
+}: PDFReaderProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -28,7 +42,15 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
   
   // UI State
   const [showSettings, setShowSettings] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const [showHint, setShowHint] = useState(true);
+  
+  // Search State
+  const [searchQuery, setSearchQuery] = useState("");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [currentSearchIndex, setCurrentSearchIndex] = useState(-1);
   const [settings, setSettings] = useState({
     theme: 'light' as 'light' | 'dark' | 'sepia',
     fontSize: 16,
@@ -282,6 +304,97 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
     }
   }, [nextPage, prevPage]);
 
+  // Enhanced search functionality for PDF
+  const performSearch = async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      console.log("Starting PDF search for:", query);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let results: any[] = [];
+
+      // Primary: Server-side search through book chunks
+      if (bookId) {
+        try {
+                  const response = await fetch(`/api/books/${bookId}/search`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'same-origin', // Include cookies for authentication
+          body: JSON.stringify({
+            query: query.trim(),
+            caseSensitive: false,
+            wholeWords: false,
+            maxResults: 50,
+          }),
+        });
+
+          if (response.ok) {
+            const searchData = await response.json();
+            if (searchData.success && searchData.results) {
+              console.log("PDF server search found", searchData.results.length, "results");
+              results = searchData.results.map((result: any, index: number) => ({
+                excerpt: result.matches[0]?.highlighted || result.text_content.substring(0, 200) + '...',
+                page: result.chunk_index + 1, // Approximate page number
+                chapter: result.chapter_title || `Page ${result.chunk_index + 1}`,
+                index: index,
+                chunkIndex: result.chunk_index,
+                matches: result.matches?.length || 0,
+                isServerResult: true
+              }));
+            }
+          }
+        } catch (serverError) {
+          console.warn("PDF server search failed:", serverError);
+        }
+      }
+
+      console.log("PDF search completed. Found", results.length, "results");
+      setSearchResults(results);
+      setCurrentSearchIndex(results.length > 0 ? 0 : -1);
+    } catch (error) {
+      console.error("PDF search error:", error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const goToSearchResult = (result: any, index: number) => {
+    setCurrentSearchIndex(index);
+    if (result.page && result.page <= totalPages) {
+      setCurrentPage(result.page);
+      setShowSearch(false);
+    }
+  };
+
+  const nextSearchResult = () => {
+    if (searchResults.length > 0) {
+      const nextIndex = (currentSearchIndex + 1) % searchResults.length;
+      goToSearchResult(searchResults[nextIndex], nextIndex);
+    }
+  };
+
+  const prevSearchResult = () => {
+    if (searchResults.length > 0) {
+      const prevIndex = currentSearchIndex === 0 ? searchResults.length - 1 : currentSearchIndex - 1;
+      goToSearchResult(searchResults[prevIndex], prevIndex);
+    }
+  };
+
+  const clearSearch = () => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setCurrentSearchIndex(-1);
+    setShowSearch(false);
+  };
+
   // Add keyboard navigation
   useEffect(() => {
     document.addEventListener("keydown", handleKeyDown);
@@ -396,6 +509,44 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
               </h1>
             </div>
             <div className="flex items-center space-x-1">
+              {/* AI Controls */}
+              {onShowSummary && (
+                <button
+                  onClick={onShowSummary}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                    showSummaryPanel 
+                      ? 'bg-blue-500 text-white' 
+                      : settings.theme === "dark" 
+                        ? "bg-gray-700 text-gray-300 hover:bg-gray-600" 
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  } flex items-center space-x-1.5`}
+                  title="AI Summary"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <span>Summary</span>
+                </button>
+              )}
+              {onShowQA && (
+                <button
+                  onClick={onShowQA}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                    showQAPanel 
+                      ? 'bg-green-500 text-white' 
+                      : settings.theme === "dark" 
+                        ? "bg-gray-700 text-gray-300 hover:bg-gray-600" 
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  } flex items-center space-x-1.5`}
+                  title="Ask AI"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Q&A</span>
+                </button>
+              )}
+              
               <button
                 onClick={toggleFullscreen}
                 className={`p-2 rounded-full transition-colors ${
@@ -411,6 +562,27 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
                     d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
                   />
                 </svg>
+              </button>
+              <button
+                onClick={() => setShowSearch(!showSearch)}
+                className={`p-2 rounded-full transition-colors relative ${
+                  settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
+                }`}
+                title="Search in book"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+                {searchResults.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                    {searchResults.length > 9 ? '9+' : searchResults.length}
+                  </span>
+                )}
               </button>
               <button
                 onClick={() => setShowSettings(!showSettings)}
@@ -603,6 +775,176 @@ export function PDFReader({ fileUrl, bookTitle = "Book", bookId }: PDFReaderProp
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black bg-opacity-80 text-white px-4 py-3 rounded-lg text-sm text-center max-w-xs pointer-events-none">
             Use the controls above and below
             <div className="text-xs mt-1 opacity-75">Or keyboard shortcuts</div>
+          </div>
+        </div>
+      )}
+
+      {/* Search Panel */}
+      {showSearch && (
+        <div className={`absolute top-20 right-6 w-96 rounded-2xl shadow-2xl border z-50 animate-in slide-in-from-top-2 duration-200 ${
+          settings.theme === "dark" 
+            ? "bg-gray-800 border-gray-700" 
+            : settings.theme === "sepia"
+            ? "bg-amber-50 border-amber-200"
+            : "bg-white border-gray-100"
+        }`}>
+          <div className={`p-4 border-b flex items-center justify-between ${
+            settings.theme === "dark" ? "border-gray-700" : settings.theme === "sepia" ? "border-amber-200" : "border-gray-100"
+          }`}>
+            <h3 className={`text-lg font-semibold ${settings.theme === "dark" ? "text-white" : settings.theme === "sepia" ? "text-amber-900" : "text-gray-900"}`}>
+              Search
+            </h3>
+            <button
+              onClick={clearSearch}
+              className={`p-1 rounded-lg transition-colors ${
+                settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
+              }`}
+            >
+              <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          
+          <div className="p-4">
+            {/* Search Input */}
+            <div className="relative mb-4">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  const newQuery = e.target.value;
+                  setSearchQuery(newQuery);
+                  if (newQuery.trim()) {
+                    performSearch(newQuery);
+                  } else {
+                    setSearchResults([]);
+                    setCurrentSearchIndex(-1);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && searchQuery.trim()) {
+                    performSearch(searchQuery);
+                  }
+                }}
+                placeholder="Search in this book"
+                className={`w-full p-3 pr-10 border rounded-xl focus:border-blue-500 focus:ring-2 transition-all duration-200 ${
+                  settings.theme === "dark" 
+                    ? "border-gray-600 bg-gray-700 text-white placeholder-gray-400 focus:ring-blue-800" 
+                    : "border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-500 focus:ring-blue-200"
+                }`}
+                autoFocus
+              />
+              {isSearching && (
+                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
+                </div>
+              )}
+            </div>
+
+            {/* Search Results */}
+            {searchResults.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <span className={`text-sm ${settings.theme === "dark" ? "text-gray-300" : "text-gray-600"}`}>
+                    {searchResults.length} result{searchResults.length > 1 ? 's' : ''} found
+                  </span>
+                  {searchResults.length > 1 && (
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={prevSearchResult}
+                        className={`p-1 rounded transition-colors ${
+                          settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
+                        }`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                      </button>
+                      <span className={`text-sm px-2 ${settings.theme === "dark" ? "text-gray-300" : "text-gray-600"}`}>
+                        {currentSearchIndex + 1} / {searchResults.length}
+                      </span>
+                      <button
+                        onClick={nextSearchResult}
+                        className={`p-1 rounded transition-colors ${
+                          settings.theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-100"
+                        }`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="max-h-60 overflow-y-auto space-y-2">
+                  {searchResults.map((result, index) => (
+                    <button
+                      key={index}
+                      onClick={() => goToSearchResult(result, index)}
+                      className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                        index === currentSearchIndex
+                          ? "bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-700"
+                          : settings.theme === "dark"
+                            ? "border-gray-600 hover:bg-gray-700"
+                            : "border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <div className={`text-sm font-medium ${
+                          settings.theme === "dark" ? "text-gray-300" : "text-gray-600"
+                        }`}>
+                          {result.chapter}
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {result.matches > 1 && (
+                            <span className={`text-xs px-2 py-1 rounded-full ${
+                              settings.theme === "dark" 
+                                ? "bg-gray-700 text-gray-300" 
+                                : "bg-gray-100 text-gray-600"
+                            }`}>
+                              {result.matches} matches
+                            </span>
+                          )}
+                          <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                            Full-text
+                          </span>
+                        </div>
+                      </div>
+                      <div className={`text-sm leading-relaxed ${
+                        settings.theme === "dark" ? "text-white" : "text-gray-900"
+                      }`}>
+                        {result.excerpt.includes('<mark') ? (
+                          <div dangerouslySetInnerHTML={{ __html: result.excerpt }} />
+                        ) : (
+                          result.excerpt.split(new RegExp(`(${searchQuery})`, 'gi')).map((part: string, i: number) => 
+                            part.toLowerCase() === searchQuery.toLowerCase() ? (
+                              <mark key={i} className="bg-yellow-200 text-gray-900 px-1 rounded dark:bg-yellow-600 dark:text-white">
+                                {part}
+                              </mark>
+                            ) : (
+                              part
+                            )
+                          )
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* No Results */}
+            {searchQuery && !isSearching && searchResults.length === 0 && (
+              <div className={`text-center py-8 ${settings.theme === "dark" ? "text-gray-400" : "text-gray-500"}`}>
+                <svg className="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <p className="text-lg mb-2">No results found</p>
+                <p className="text-sm">Try different keywords or check your spelling</p>
+              </div>
+            )}
           </div>
         </div>
       )}

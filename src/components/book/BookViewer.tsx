@@ -47,7 +47,18 @@ const BookViewer: React.FC<BookViewerProps> = ({
       />
     );
   } else if (fileType === 'application/pdf') {
-    return <PDFReader fileUrl={fileUrl} bookTitle={bookTitle} bookId={bookId} />;
+    return (
+      <PDFReader 
+        fileUrl={fileUrl} 
+        bookTitle={bookTitle} 
+        bookId={bookId} 
+        onShowSummary={onShowSummary}
+        onShowQA={onShowQA}
+        showSummaryPanel={showSummaryPanel}
+        showQAPanel={showQAPanel}
+        currentProgress={currentProgress}
+      />
+    );
   } else {
     return (
       <div className="p-4 text-center text-red-500">

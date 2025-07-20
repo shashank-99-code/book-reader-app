@@ -9,6 +9,25 @@ const nextConfig: NextConfig = {
       path: false,
     };
 
+    // Configure pdf-parse for server-side usage
+    if (isServer) {
+      // Exclude pdf-parse test files from bundling
+      config.externals = config.externals || [];
+      config.externals.push({
+        'pdf-parse/test': 'commonjs pdf-parse/test',
+        './test/data/05-versions-space.pdf': 'commonjs ./test/data/05-versions-space.pdf'
+      });
+      
+      // Add webpack ignore plugin for test files
+      const { IgnorePlugin } = require('webpack');
+      config.plugins.push(
+        new IgnorePlugin({
+          resourceRegExp: /^\.\/test\//,
+          contextRegExp: /pdf-parse/,
+        })
+      );
+    }
+
     // Copy PDF.js worker to public directory
     if (!isServer) {
       config.resolve.alias = {
