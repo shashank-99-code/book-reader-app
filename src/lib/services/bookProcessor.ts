@@ -186,21 +186,22 @@ export async function extractEPUBMetadata(fileBuffer: ArrayBuffer): Promise<{
 }
 
 /**
- * Extract text content from EPUB file using manual ZIP parsing
+ * Extract text content from EPUB file using multiple retry strategies
  */
-export async function extractTextFromEPUB(fileBuffer: ArrayBuffer): Promise<string[]> {
-  try {
-    const AdmZip = (await import('adm-zip')).default;
-    const { JSDOM } = await import('jsdom');
+export async function extractTextFromEPUB(fileBuffer: ArrayBuffer, maxRetries: number = 3): Promise<string[]> {
+  const AdmZip = (await import('adm-zip')).default;
+  const { JSDOM } = await import('jsdom');
+  
+  const buffer = Buffer.from(fileBuffer);
+  const zip = new AdmZip(buffer);
+  
+  // Strategy 1: Standard spine-based extraction
+  async function trySpineBasedExtraction(): Promise<string[]> {
+    console.log('📖 Attempting strategy 1: Spine-based extraction');
     
-    // Create a buffer from ArrayBuffer
-    const buffer = Buffer.from(fileBuffer);
-    const zip = new AdmZip(buffer);
-    
-    // Find the content.opf file to get the reading order
     const containerEntry = zip.getEntry('META-INF/container.xml');
     if (!containerEntry) {
-      throw new Error('Invalid EPUB: missing container.xml');
+      throw new Error('Missing container.xml');
     }
     
     const containerContent = containerEntry.getData().toString('utf8');
@@ -208,29 +209,26 @@ export async function extractTextFromEPUB(fileBuffer: ArrayBuffer): Promise<stri
     const rootfileElement = containerDom.window.document.querySelector('rootfile');
     
     if (!rootfileElement) {
-      throw new Error('Invalid EPUB: missing rootfile in container.xml');
+      throw new Error('Missing rootfile in container.xml');
     }
     
     const opfPath = rootfileElement.getAttribute('full-path');
     if (!opfPath) {
-      throw new Error('Invalid EPUB: missing full-path in rootfile');
+      throw new Error('Missing full-path in rootfile');
     }
     
-    // Get the OPF file
     const opfEntry = zip.getEntry(opfPath);
     if (!opfEntry) {
-      throw new Error(`Invalid EPUB: missing OPF file at ${opfPath}`);
+      throw new Error(`Missing OPF file at ${opfPath}`);
     }
     
     const opfContent = opfEntry.getData().toString('utf8');
     const opfDom = new JSDOM(opfContent, { contentType: 'text/xml' });
     const opfDoc = opfDom.window.document;
     
-    // Get the directory path for the OPF file
     const opfDir = opfPath.split('/').slice(0, -1).join('/');
     const basePath = opfDir ? opfDir + '/' : '';
     
-    // Get the spine (reading order)
     const spineItems = opfDoc.querySelectorAll('spine itemref');
     const pages: string[] = [];
     
@@ -238,57 +236,360 @@ export async function extractTextFromEPUB(fileBuffer: ArrayBuffer): Promise<stri
       const idref = itemref.getAttribute('idref');
       if (!idref) continue;
       
-      // Find the corresponding manifest item
       const manifestItem = opfDoc.querySelector(`manifest item[id="${idref}"]`);
       if (!manifestItem) continue;
       
       const href = manifestItem.getAttribute('href');
       if (!href) continue;
       
-      // Get the XHTML file
       const contentPath = basePath + href;
       const contentEntry = zip.getEntry(contentPath);
-      if (!contentEntry) {
-        console.warn(`Missing content file: ${contentPath}`);
-        continue;
-      }
+      if (!contentEntry) continue;
       
       const htmlContent = contentEntry.getData().toString('utf8');
-      
-      // Extract text using JSDOM
       const dom = new JSDOM(htmlContent);
       const textContent = dom.window.document.body?.textContent || '';
       
-      if (textContent && textContent.trim().length > 0) {
+      if (textContent?.trim()) {
         pages.push(textContent.trim());
       }
     }
     
     if (pages.length === 0) {
-      console.warn('No text content extracted from EPUB');
-      // Fallback: try to extract from any HTML files
-      const entries = zip.getEntries();
-      for (const entry of entries) {
-        if (entry.entryName.endsWith('.html') || entry.entryName.endsWith('.xhtml')) {
-          try {
-            const htmlContent = entry.getData().toString('utf8');
-            const dom = new JSDOM(htmlContent);
-            const textContent = dom.window.document.body?.textContent || '';
-            
-            if (textContent && textContent.trim().length > 0) {
-              pages.push(textContent.trim());
-            }
-          } catch (e) {
-            console.warn(`Failed to extract from ${entry.entryName}:`, e);
-          }
-        }
-      }
+      throw new Error('No content found in spine');
     }
     
     return pages;
+  }
+  
+  // Strategy 2: Alternative selectors for different EPUB structures
+  async function tryAlternativeSelectorExtraction(): Promise<string[]> {
+    console.log('📖 Attempting strategy 2: Alternative selector extraction');
+    
+    const containerEntry = zip.getEntry('META-INF/container.xml');
+    if (!containerEntry) {
+      throw new Error('Missing container.xml');
+    }
+    
+    const containerContent = containerEntry.getData().toString('utf8');
+    const containerDom = new JSDOM(containerContent, { contentType: 'text/xml' });
+    
+    // Try different selector patterns
+    const selectors = ['rootfile', 'container rootfile', 'rootfiles rootfile'];
+    let rootfileElement = null;
+    
+    for (const selector of selectors) {
+      rootfileElement = containerDom.window.document.querySelector(selector);
+      if (rootfileElement) break;
+    }
+    
+    if (!rootfileElement) {
+      throw new Error('No rootfile found with any selector');
+    }
+    
+    const opfPath = rootfileElement.getAttribute('full-path');
+    if (!opfPath) {
+      throw new Error('Missing full-path');
+    }
+    
+    const opfEntry = zip.getEntry(opfPath);
+    if (!opfEntry) {
+      throw new Error(`Missing OPF file`);
+    }
+    
+    const opfContent = opfEntry.getData().toString('utf8');
+    const opfDom = new JSDOM(opfContent, { contentType: 'text/xml' });
+    const opfDoc = opfDom.window.document;
+    
+    // Try different namespace approaches
+    const spineSelectors = [
+      'spine itemref',
+      'package spine itemref', 
+      'spine > itemref',
+      'itemref'
+    ];
+    
+    let spineItems = null;
+    for (const selector of spineSelectors) {
+      spineItems = opfDoc.querySelectorAll(selector);
+      if (spineItems.length > 0) break;
+    }
+    
+    if (!spineItems || spineItems.length === 0) {
+      throw new Error('No spine items found');
+    }
+    
+    const opfDir = opfPath.split('/').slice(0, -1).join('/');
+    const basePath = opfDir ? opfDir + '/' : '';
+    const pages: string[] = [];
+    
+    for (const itemref of spineItems) {
+      const idref = itemref.getAttribute('idref');
+      if (!idref) continue;
+      
+      // Try different manifest selectors
+      const manifestSelectors = [
+        `manifest item[id="${idref}"]`,
+        `package manifest item[id="${idref}"]`,
+        `item[id="${idref}"]`
+      ];
+      
+      let manifestItem = null;
+      for (const selector of manifestSelectors) {
+        manifestItem = opfDoc.querySelector(selector);
+        if (manifestItem) break;
+      }
+      
+      if (!manifestItem) continue;
+      
+      const href = manifestItem.getAttribute('href');
+      if (!href) continue;
+      
+      const contentPath = basePath + href;
+      const contentEntry = zip.getEntry(contentPath);
+      if (!contentEntry) continue;
+      
+      try {
+        const htmlContent = contentEntry.getData().toString('utf8');
+        const dom = new JSDOM(htmlContent);
+        const textContent = dom.window.document.body?.textContent || '';
+        
+        if (textContent?.trim()) {
+          pages.push(textContent.trim());
+        }
+      } catch (e) {
+        console.warn(`Failed to parse ${contentPath}:`, e);
+      }
+    }
+    
+    if (pages.length === 0) {
+      throw new Error('No content extracted with alternative selectors');
+    }
+    
+    return pages;
+  }
+  
+  // Strategy 3: Scan all HTML/XHTML files with smart prioritization
+  async function tryFullHtmlScan(): Promise<string[]> {
+    console.log('📖 Attempting strategy 3: Full HTML scan');
+    
+    const pages: string[] = [];
+    const entries = zip.getEntries();
+    const htmlFiles: Array<{entry: any, priority: number}> = [];
+    
+    // Categorize HTML files by likely importance
+    for (const entry of entries) {
+      if (entry.entryName.endsWith('.html') || entry.entryName.endsWith('.xhtml')) {
+        let priority = 0;
+        
+        // Higher priority for files in common content directories
+        if (entry.entryName.includes('text/') || entry.entryName.includes('content/')) {
+          priority += 100;
+        }
+        
+        // Higher priority for chapter-like names
+        if (/chapter|ch\d+|part\d+/i.test(entry.entryName)) {
+          priority += 50;
+        }
+        
+        // Lower priority for navigation, toc, cover files
+        if (/nav|toc|cover|title/i.test(entry.entryName)) {
+          priority -= 50;
+        }
+        
+        htmlFiles.push({ entry, priority });
+      }
+    }
+    
+    // Sort by priority (highest first)
+    htmlFiles.sort((a, b) => b.priority - a.priority);
+    
+    for (const {entry} of htmlFiles) {
+      try {
+        const htmlContent = entry.getData().toString('utf8');
+        const dom = new JSDOM(htmlContent);
+        const doc = dom.window.document;
+        
+        // Try different content selectors
+        const contentSelectors = [
+          'body',
+          'main',
+          '.content',
+          '#content',
+          'article',
+          '.chapter',
+          '.text'
+        ];
+        
+        let textContent = '';
+        for (const selector of contentSelectors) {
+          const element = doc.querySelector(selector);
+          if (element) {
+            textContent = element.textContent || '';
+            if (textContent.trim().length > 100) { // Only use if substantial content
+              break;
+            }
+          }
+        }
+        
+        if (textContent?.trim()) {
+          pages.push(textContent.trim());
+        }
+      } catch (e) {
+        console.warn(`Failed to extract from ${entry.entryName}:`, e);
+      }
+    }
+    
+    if (pages.length === 0) {
+      throw new Error('No content found in HTML files');
+    }
+    
+    return pages;
+  }
+  
+  // Strategy 4: Raw text extraction from any readable files
+  async function tryRawTextExtraction(): Promise<string[]> {
+    console.log('📖 Attempting strategy 4: Raw text extraction');
+    
+    const pages: string[] = [];
+    const entries = zip.getEntries();
+    
+    for (const entry of entries) {
+      // Skip binary files and directories
+      if (entry.isDirectory || 
+          entry.entryName.includes('.jpg') || 
+          entry.entryName.includes('.png') || 
+          entry.entryName.includes('.gif') ||
+          entry.entryName.includes('.css') ||
+          entry.entryName.includes('.js')) {
+        continue;
+      }
+      
+      try {
+        const content = entry.getData().toString('utf8');
+        
+        // Remove HTML tags and extract readable text
+        const textContent = content
+          .replace(/<[^>]*>/g, ' ')  // Remove HTML tags
+          .replace(/&[a-zA-Z0-9#]+;/g, ' ')  // Remove HTML entities
+          .replace(/\s+/g, ' ')  // Normalize whitespace
+          .trim();
+        
+        // Only include if it looks like readable content (not markup/metadata)
+        if (textContent.length > 200 && 
+            !/^[\s\n\r]*</.test(content) &&  // Not starting with markup
+            /[a-zA-Z]{3,}/.test(textContent)) {  // Contains actual words
+          pages.push(textContent);
+        }
+      } catch (e) {
+        // Skip files that can't be read as text
+        continue;
+      }
+    }
+    
+    if (pages.length === 0) {
+      throw new Error('No readable text content found');
+    }
+    
+    return pages;
+  }
+  
+  // Execute strategies with retry logic
+  const strategies = [
+    { name: 'Spine-based extraction', fn: trySpineBasedExtraction },
+    { name: 'Alternative selector extraction', fn: tryAlternativeSelectorExtraction },
+    { name: 'Full HTML scan', fn: tryFullHtmlScan },
+    { name: 'Raw text extraction', fn: tryRawTextExtraction }
+  ];
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    for (const strategy of strategies) {
+      try {
+        console.log(`🔄 Retry ${attempt + 1}/${maxRetries}: ${strategy.name}`);
+        const result = await strategy.fn();
+        
+        if (result.length > 0) {
+          console.log(`✅ Success with ${strategy.name}: ${result.length} pages extracted`);
+          return result;
+        }
+      } catch (error) {
+        console.warn(`❌ ${strategy.name} failed:`, error instanceof Error ? error.message : error);
+      }
+    }
+  }
+  
+  // If all strategies fail, throw a comprehensive error
+  const error = new Error('All EPUB text extraction strategies failed after multiple retries');
+  console.error('💥 EPUB extraction failed completely:', error.message);
+  throw error;
+}
+
+/**
+ * Aggressive text extraction as a final fallback - tries to extract any readable text
+ */
+async function tryAggressiveTextExtraction(fileBuffer: ArrayBuffer): Promise<string[]> {
+  const AdmZip = (await import('adm-zip')).default;
+  
+  try {
+    const buffer = Buffer.from(fileBuffer);
+    const zip = new AdmZip(buffer);
+    const entries = zip.getEntries();
+    const pages: string[] = [];
+    
+    console.log('🔍 Scanning all files for any readable text...');
+    
+    for (const entry of entries) {
+      if (entry.isDirectory) continue;
+      
+      try {
+        // Try to read as text with different encodings
+        const encodings = ['utf8', 'latin1', 'ascii'];
+        
+        for (const encoding of encodings) {
+          try {
+            const content = entry.getData().toString(encoding as BufferEncoding);
+            
+            // Very basic text detection - look for patterns that suggest readable content
+            const hasWords = /[a-zA-Z]{3,}/.test(content);
+            const hasSpaces = /\s+/.test(content);
+            const notTooManySpecialChars = (content.match(/[^a-zA-Z0-9\s.,!?;:\-'"()]/g) || []).length < content.length * 0.3;
+            
+            if (hasWords && hasSpaces && notTooManySpecialChars && content.length > 100) {
+              // Clean up the text
+              const cleanText = content
+                .replace(/<[^>]*>/g, ' ')  // Remove HTML
+                .replace(/&[a-zA-Z0-9#]+;/g, ' ')  // Remove entities
+                .replace(/[\r\n\t]+/g, ' ')  // Normalize whitespace
+                .replace(/\s{2,}/g, ' ')  // Multiple spaces to single
+                .trim();
+              
+              if (cleanText.length > 200) {
+                pages.push(cleanText);
+                console.log(`📄 Extracted text from ${entry.entryName} (${cleanText.length} chars)`);
+                break; // Move to next file if we found content
+              }
+            }
+          } catch (encodingError) {
+            // Try next encoding
+            continue;
+          }
+        }
+      } catch (fileError) {
+        // Skip this file
+        continue;
+      }
+    }
+    
+    // If we found some content, return it
+    if (pages.length > 0) {
+      console.log(`🎯 Aggressive extraction found ${pages.length} readable sections`);
+      return pages;
+    }
+    
+    throw new Error('No readable text found even with aggressive extraction');
   } catch (error) {
-    console.error('Error extracting text from EPUB:', error);
-    throw new Error('Failed to extract text from EPUB');
+    console.error('Aggressive text extraction failed:', error);
+    throw error;
   }
 }
 
@@ -503,9 +804,20 @@ export async function processBookFile(
     if (fileType === 'application/pdf') {
       pages = await extractTextFromPDF(fileBuffer);
     } else if (fileType === 'application/epub+zip') {
-      pages = await extractTextFromEPUB(fileBuffer);
+      console.log('🔄 Starting EPUB text extraction with retry strategies...');
       
-      // Also extract and save metadata for EPUB files
+      try {
+        // Try text extraction with multiple strategies and retries
+        pages = await extractTextFromEPUB(fileBuffer, 3);
+        console.log(`✅ EPUB text extraction successful: ${pages.length} pages extracted`);
+      } catch (textError) {
+        console.error('❌ All EPUB text extraction strategies failed:', textError);
+        
+        // Continue with metadata extraction even if text extraction fails
+        console.log('📋 Attempting metadata extraction despite text extraction failure...');
+      }
+      
+      // Extract and save metadata for EPUB files (independent of text extraction)
       try {
         console.log('Extracting EPUB metadata...');
         const metadata = await extractEPUBMetadata(fileBuffer);
@@ -517,6 +829,20 @@ export async function processBookFile(
       } catch (metadataError) {
         console.warn('Failed to extract EPUB metadata:', metadataError);
         // Don't fail the entire process if metadata extraction fails
+      }
+      
+      // If text extraction failed, try one more aggressive approach
+      if (pages.length === 0) {
+        console.log('🔄 Attempting aggressive text extraction as final fallback...');
+        try {
+          const fallbackPages = await tryAggressiveTextExtraction(fileBuffer);
+          if (fallbackPages.length > 0) {
+            pages = fallbackPages;
+            console.log(`✅ Fallback extraction successful: ${pages.length} pages recovered`);
+          }
+        } catch (fallbackError) {
+          console.warn('❌ Fallback extraction also failed:', fallbackError);
+        }
       }
     } else {
       return {
