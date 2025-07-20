@@ -10,7 +10,7 @@ const buttonVariants = cva(
         default:
           "bg-gradient-to-r from-pink-500 to-pink-400 text-white hover:from-pink-600 hover:to-pink-500 shadow-sm hover:shadow-md focus-visible:ring-pink-500",
         destructive: "bg-red-500 text-white hover:bg-red-600 focus-visible:ring-red-500",
-        outline: "border border-gray-300 bg-white hover:bg-gray-50 hover:border-pink-300 focus-visible:ring-pink-500",
+        outline: "border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 hover:border-pink-300 focus-visible:ring-pink-500",
         secondary: "bg-gray-100 text-gray-900 hover:bg-gray-200 focus-visible:ring-gray-500",
         ghost: "hover:bg-pink-50 hover:text-pink-600 focus-visible:ring-pink-500",
         link: "text-pink-600 underline-offset-4 hover:underline focus-visible:ring-pink-500",

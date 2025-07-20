@@ -11,7 +11,7 @@ export default function RegisterPage() {
       </div>
       <RegisterForm />
       <div className="text-center text-sm">
-        <p className="text-gray-600">
+        <p className="text-gray-700">
           Already have an account?{' '}
           <Link
             href="/login"
