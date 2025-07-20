@@ -12,12 +12,22 @@ interface BookInfo {
   has_chunks: boolean;
 }
 
+interface SearchResult {
+  id: string;
+  chunk_index: number;
+  content: string;
+  text_content: string;
+  chapter_title?: string;
+  page_start?: number;
+  page_end?: number;
+}
+
 export default function DebugPage() {
   const [books, setBooks] = useState<BookInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTest, setSearchTest] = useState('');
   const [selectedBook, setSelectedBook] = useState<string>('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isProcessing, setIsProcessing] = useState<string | null>(null);
 
@@ -43,7 +53,7 @@ export default function DebugPage() {
       // Get chunk counts for each book
       const booksWithChunks: BookInfo[] = await Promise.all(
         (booksData || []).map(async (book) => {
-          const { data: chunks, error: chunksError } = await supabase
+          const { data: chunks } = await supabase
             .from('book_chunks')
             .select('id')
             .eq('book_id', book.id);

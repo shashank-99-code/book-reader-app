@@ -24,7 +24,7 @@ export async function updateReadingProgressPercentage(
   progressPercentage: number
 ): Promise<ReadingProgress | null> {
   try {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
     // Round to 2 decimal places for storage

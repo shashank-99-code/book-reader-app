@@ -16,6 +16,15 @@ export interface SearchMatch {
   highlighted: string;
 }
 
+interface BookChunk {
+  id: string;
+  chunk_index: number;
+  content: string;
+  page_start?: number;
+  page_end?: number;
+  word_count?: number;
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ bookId: string }> }
@@ -128,8 +137,8 @@ export async function POST(
 
     // Multi-strategy search approach compatible with basic PostgreSQL
     const searchQuery = query.trim();
-    let chunks: any[] = [];
-    let searchError: any = null;
+    let chunks: BookChunk[] = [];
+    let searchError: Error | null = null;
 
     // Strategy 1: Basic pattern matching (primary method)
     let searchPattern: string;
@@ -180,7 +189,7 @@ export async function POST(
     // Strategy 2: Word-by-word search for complex queries (if no results)
     if (chunks.length === 0 && searchQuery.includes(' ')) {
       const queryWords = searchQuery.toLowerCase().split(/\s+/).filter(word => word.length > 2);
-      const allWordChunks: any[] = [];
+      const allWordChunks: BookChunk[] = [];
       
       console.log(`Trying word-by-word search for: ${queryWords.join(', ')}`);
       

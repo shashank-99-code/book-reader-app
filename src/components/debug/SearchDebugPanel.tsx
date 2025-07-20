@@ -5,14 +5,21 @@ import { Button } from '@/components/ui/Button';
 
 interface SearchDebugPanelProps {
   bookId: string;
-  bookTitle?: string;
+  bookTitle: string;
+}
+
+interface SearchResult {
+  id: string;
+  chunk_index: number;
+  text_content: string;
+  chapter_title?: string;
 }
 
 export default function SearchDebugPanel({ bookId, bookTitle }: SearchDebugPanelProps) {
   const [isReprocessing, setIsReprocessing] = useState(false);
   const [reprocessResult, setReprocessResult] = useState<string | null>(null);
   const [searchTest, setSearchTest] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
   const handleReprocess = async () => {

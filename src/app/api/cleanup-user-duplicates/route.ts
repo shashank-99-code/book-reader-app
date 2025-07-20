@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
-export async function DELETE(req: NextRequest) {
+export async function DELETE() {
   try {
     const supabase = await createClient();
     
@@ -39,12 +39,10 @@ export async function DELETE(req: NextRequest) {
     
     // Find books to delete (keep only the first one of each group)
     const booksToDelete: string[] = [];
-    let duplicatesFound = 0;
     
     Object.values(bookGroups).forEach(group => {
       if (group.length > 1) {
         // Keep the first (oldest) book, delete the rest
-        duplicatesFound += group.length - 1;
         group.slice(1).forEach(book => {
           booksToDelete.push(book.id);
         });

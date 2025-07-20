@@ -110,14 +110,16 @@ export async function extractTextFromPDF(fileBuffer: ArrayBuffer): Promise<strin
   try {
     console.log('PDF Processing: Attempting pdf-parse extraction...');
     
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let pdfParse: any;
     try {
       // Try dynamic import first (safer for webpack)
       const pdfParseModule = await import('pdf-parse');
       pdfParse = pdfParseModule.default || pdfParseModule;
-    } catch (importError) {
+    } catch {
       console.log('Dynamic import failed, trying require...');
       // Fallback to require
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       pdfParse = require('pdf-parse');
     }
     
@@ -542,6 +544,7 @@ export async function extractTextFromEPUB(fileBuffer: ArrayBuffer, maxRetries: n
     
     const pages: string[] = [];
     const entries = zip.getEntries();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const htmlFiles: Array<{entry: any, priority: number}> = [];
     
     // Categorize HTML files by likely importance
@@ -648,7 +651,7 @@ export async function extractTextFromEPUB(fileBuffer: ArrayBuffer, maxRetries: n
             /[a-zA-Z]{3,}/.test(textContent)) {  // Contains actual words
           pages.push(textContent);
         }
-      } catch (e) {
+      } catch {
         // Skip files that can't be read as text
         continue;
       }
@@ -736,12 +739,12 @@ async function tryAggressiveTextExtraction(fileBuffer: ArrayBuffer): Promise<str
                 break; // Move to next file if we found content
               }
             }
-          } catch (encodingError) {
+          } catch {
             // Try next encoding
             continue;
           }
         }
-      } catch (fileError) {
+      } catch {
         // Skip this file
         continue;
       }

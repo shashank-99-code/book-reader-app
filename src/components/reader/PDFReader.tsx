@@ -32,7 +32,7 @@ export function PDFReader({
   onShowQA,
   showSummaryPanel = false,
   showQAPanel = false,
-  currentProgress = 0 
+ 
 }: PDFReaderProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
@@ -338,6 +338,7 @@ export function PDFReader({
             const searchData = await response.json();
             if (searchData.success && searchData.results) {
               console.log("PDF server search found", searchData.results.length, "results");
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               results = searchData.results.map((result: any, index: number) => ({
                 excerpt: result.matches[0]?.highlighted || result.text_content.substring(0, 200) + '...',
                 page: result.chunk_index + 1, // Approximate page number

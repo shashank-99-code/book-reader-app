@@ -59,6 +59,7 @@ export function ToastContainer() {
 
   // Expose global toast function
   useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (window as any).showToast = (message: string, type: 'info' | 'success' | 'error' | 'warning' = 'info') => {
       const id = Date.now().toString();
       setToasts(prev => [...prev, { id, message, type }]);

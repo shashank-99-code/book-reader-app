@@ -1,4 +1,4 @@
-import { SearchResult, SearchMatch } from '@/app/api/books/[bookId]/search/route';
+import { SearchResult } from '@/app/api/books/[bookId]/search/route';
 
 export interface SearchOptions {
   caseSensitive?: boolean;
@@ -85,7 +85,9 @@ export class BookSearchService {
         // Limit cache size to prevent memory issues
         if (this.searchCache.size > 100) {
           const firstKey = this.searchCache.keys().next().value;
-          this.searchCache.delete(firstKey);
+          if (firstKey) {
+            this.searchCache.delete(firstKey);
+          }
         }
       }
 
@@ -103,6 +105,7 @@ export class BookSearchService {
    * Client-side search for EPUB using epub.js (fallback method)
    */
   async searchEPUB(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     book: any, // epub.js book instance
     query: string,
     options: SearchOptions = {}
@@ -146,6 +149,7 @@ export class BookSearchService {
    * Search within PDF content (requires PDF.js integration)
    */
   async searchPDF(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     pdfDocument: any, // PDF.js document
     query: string,
     options: SearchOptions = {}
@@ -165,6 +169,7 @@ export class BookSearchService {
         
         // Combine text items into a single string
         const pageText = textContent.items
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .map((item: any) => item.str)
           .join(' ');
 

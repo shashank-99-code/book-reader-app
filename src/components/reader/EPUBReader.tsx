@@ -1,9 +1,20 @@
 "use client"
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable react-hooks/exhaustive-deps */
+
 import type React from "react"
 import { useEffect, useRef, useState, useCallback } from "react"
 import ePub, { type Book, type Rendition, type NavItem } from "epubjs"
 import { useReader } from '@/contexts/ReaderContext';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+interface SearchResult extends Record<string, any> {
+  id: string;
+  chunk_index: number;
+  text_content: string;
+}
 
 interface EPUBReaderProps {
   fileUrl: string
@@ -37,7 +48,6 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
   onShowQA,
   showSummaryPanel = false,
   showQAPanel = false,
-  currentProgress = 0
 }) => {
   const viewerRef = useRef<HTMLDivElement>(null)
   const [book, setBook] = useState<Book | null>(null)
@@ -72,11 +82,11 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
   // Search State
   const [searchQuery, setSearchQuery] = useState("")
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [currentSearchIndex, setCurrentSearchIndex] = useState(-1)
 
-  const { updateProgress, updateProgressPercentage, progress: contextProgress } = useReader();
+  const { updateProgressPercentage, progress: contextProgress } = useReader();
 
   // Refs for persistence
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1142,6 +1152,23 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
     setCurrentSearchIndex(-1)
     setShowSearch(false)
   }
+
+  // Extract plain text content from the node
+  const extractTextFromNode = useCallback((element: Element): string => {
+    // Create a text walker
+    const walker = document.createTreeWalker(
+      element,
+      NodeFilter.SHOW_TEXT
+    );
+
+    let text = '';
+    let node;
+    while ((node = walker.nextNode())) {
+      text += node.textContent || '';
+    }
+
+    return text.trim();
+  }, []);
 
   if (error) {
     return (
