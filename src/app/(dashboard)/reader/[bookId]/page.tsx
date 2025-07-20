@@ -143,7 +143,7 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
 
   return (
     <div 
-      className={`min-h-screen flex ${settings.theme === 'dark' ? 'bg-gray-900' : settings.theme === 'sepia' ? 'bg-amber-50' : 'bg-white'}`}
+      className={`min-h-screen flex ${settings.theme === 'dark' ? 'dark bg-gray-900' : settings.theme === 'sepia' ? 'bg-amber-50' : 'bg-white'}`}
       suppressHydrationWarning
     >
       {/* Main Content Area */}
@@ -164,8 +164,8 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
       </div>
 
       {/* Right Sidebar - Summary or Q&A */}
-      <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
-        showSummaryPanel || showQAPanel ? 'w-96' : 'w-0'
+      <div className={`transition-all duration-300 ease-in-out overflow-hidden border-l border-gray-200 dark:border-gray-700 ${
+        showSummaryPanel || showQAPanel ? 'w-96 shadow-lg' : 'w-0'
       }`}>
         <div className="w-96 h-full">
           {showSummaryPanel && (
