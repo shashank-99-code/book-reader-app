@@ -36,10 +36,8 @@ type AIAction =
 
 // AI reducer
 function aiReducer(state: AIState, action: AIAction): AIState {
-  console.log('🔧 AIReducer:', action.type, 'payload' in action ? action.payload : 'no payload');
   switch (action.type) {
     case 'SET_LOADING':
-      console.log(`🔄 AIReducer: Setting isLoading from ${state.isLoading} to ${action.payload}`);
       return { ...state, isLoading: action.payload };
     
     case 'SET_SUMMARY':
@@ -119,12 +117,11 @@ export function AIProvider({ children }: { children: React.ReactNode }) {
     options: GenerateSummaryOptions = {}
   ) => {
     try {
-      console.log('🔄 AIContext: Setting loading to true...');
       dispatch({ type: 'SET_LOADING', payload: true });
       dispatch({ type: 'SET_ERROR', payload: null });
-      console.log(`📡 AIContext: Making API call to /api/books/${bookId}/summarize`);
 
-      const response = await fetch(`/api/books/${bookId}/summarize`, {
+      // Start both the API call and minimum loading time
+      const apiPromise = fetch(`/api/books/${bookId}/summarize`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -136,14 +133,17 @@ export function AIProvider({ children }: { children: React.ReactNode }) {
         }),
       });
 
-      console.log('📨 AIContext: API response received, status:', response.status);
+      // Minimum 3 seconds of loading to show the beautiful progress bar
+      const minLoadingTime = new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Wait for both API and minimum time
+      const [response] = await Promise.all([apiPromise, minLoadingTime]);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
-      console.log('📋 AIContext: API data received:', data);
 
       if (!data.success) {
         throw new Error(data.error || 'Failed to generate summary');
@@ -157,15 +157,13 @@ export function AIProvider({ children }: { children: React.ReactNode }) {
           fromCache: data.fromCache || false,
         },
       });
-      console.log('✅ AIContext: Summary set successfully');
     } catch (error) {
-      console.error('❌ AIContext: Error generating summary:', error);
+      console.error('Error generating summary:', error);
       dispatch({
         type: 'SET_ERROR',
         payload: error instanceof Error ? error.message : 'Unknown error occurred',
       });
     } finally {
-      console.log('🏁 AIContext: Setting loading to false (finally block)');
       dispatch({ type: 'SET_LOADING', payload: false });
     }
   }, []);

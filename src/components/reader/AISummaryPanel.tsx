@@ -38,24 +38,22 @@ export function AISummaryPanel({
   // Enhanced loading animation
   useEffect(() => {
     if (state.isLoading) {
-      console.log('🎬 Starting loading animation...');
       setLoadingStep(0);
       setLoadingProgress(0);
       
       const steps = [
-        { step: 0, progress: 20, duration: 2000 },
-        { step: 1, progress: 50, duration: 3000 },
-        { step: 2, progress: 80, duration: 2000 },
-        { step: 3, progress: 100, duration: 1000 }
+        { step: 0, progress: 25, duration: 800 },
+        { step: 1, progress: 60, duration: 1200 },
+        { step: 2, progress: 85, duration: 800 },
+        { step: 3, progress: 100, duration: 400 }
       ];
 
       const timeouts: NodeJS.Timeout[] = [];
       steps.forEach(({ step, progress }, index) => {
         const timeout = setTimeout(() => {
-          console.log(`📊 Loading step ${step}, progress ${progress}%`);
           setLoadingStep(step);
           setLoadingProgress(progress);
-        }, index * 2000);
+        }, index * 800);
         timeouts.push(timeout);
       });
 
@@ -64,7 +62,6 @@ export function AISummaryPanel({
         timeouts.forEach(clearTimeout);
       };
     } else {
-      console.log('⏹️ Loading stopped, resetting animation');
       setLoadingStep(0);
       setLoadingProgress(0);
     }
@@ -72,11 +69,9 @@ export function AISummaryPanel({
 
   const handleGenerateSummary = async (forceRefresh = false) => {
     try {
-      console.log('🚀 Starting summary generation...', { isLoading: state.isLoading });
       await generateSummary(bookId, currentProgress, bookTitle, { forceRefresh });
-      console.log('✅ Summary generation completed');
     } catch (error) {
-      console.error('❌ Failed to generate summary:', error);
+      console.error('Failed to generate summary:', error);
     }
   };
 
@@ -173,10 +168,6 @@ export function AISummaryPanel({
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {/* Debug info */}
-        <div className="p-2 bg-yellow-100 dark:bg-yellow-900/20 text-xs text-yellow-800 dark:text-yellow-200 border-b">
-          Debug: isLoading={state.isLoading.toString()}, loadingProgress={loadingProgress}%, loadingStep={loadingStep}
-        </div>
         {state.isLoading ? (
           <div className="p-6">
             {/* Enhanced Loading Header */}
