@@ -2,9 +2,33 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
+import { useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 
-export default function Home() {
+function LandingPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Handle OAuth redirects that land on the home page
+  useEffect(() => {
+    const code = searchParams.get('code');
+    if (code) {
+      console.log('🔥 OAuth code detected on landing page, redirecting to auth callback');
+      console.log('Code:', code);
+      
+      // Build the callback URL with all parameters
+      const callbackUrl = new URL('/auth/callback', window.location.origin);
+      searchParams.forEach((value, key) => {
+        callbackUrl.searchParams.set(key, value);
+      });
+      
+      console.log('🚀 Redirecting to:', callbackUrl.toString());
+      router.replace(callbackUrl.pathname + callbackUrl.search);
+      return;
+    }
+  }, [searchParams, router]);
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-pink-50 to-purple-50">
       {/* Hero Section */}
@@ -74,5 +98,13 @@ export default function Home() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <LandingPageContent />
+    </Suspense>
   );
 }
