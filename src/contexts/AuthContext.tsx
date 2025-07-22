@@ -117,25 +117,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithGoogle = async () => {
     try {
-      const redirectUrl = `${window.location.origin}/auth/callback`;
-      console.log('🌍 Environment:', process.env.NODE_ENV);
-      console.log('🔗 Window origin:', window.location.origin);
-      console.log('🎯 Google OAuth redirect URL:', redirectUrl);
-      console.log('📍 Current URL:', window.location.href);
-      
-      // Show debug info in alert for easier capture
-      alert(`DEBUG INFO:
-🌍 Environment: ${process.env.NODE_ENV}
-🔗 Window origin: ${window.location.origin}
-🎯 Redirect URL: ${redirectUrl}
-📍 Current URL: ${window.location.href}
-
-Click OK to continue with Google OAuth...`);
-      
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: redirectUrl,
+          redirectTo: `${window.location.origin}/auth/callback`,
         },
       });
       if (error) throw error;
