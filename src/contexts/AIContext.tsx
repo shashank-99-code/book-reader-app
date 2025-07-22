@@ -119,8 +119,7 @@ export function AIProvider({ children }: { children: React.ReactNode }) {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       dispatch({ type: 'SET_ERROR', payload: null });
-
-      // Start both the API call and minimum loading time
+      // Start both API call and minimum loading time
       const apiPromise = fetch(`/api/books/${bookId}/summarize`, {
         method: 'POST',
         headers: {
@@ -133,10 +132,10 @@ export function AIProvider({ children }: { children: React.ReactNode }) {
         }),
       });
 
-      // Minimum 3 seconds of loading to show the beautiful progress bar
-      const minLoadingTime = new Promise(resolve => setTimeout(resolve, 3000));
-
-      // Wait for both API and minimum time
+      // Minimum 2.5 seconds of loading to show progress bar
+      const minLoadingTime = new Promise(resolve => setTimeout(resolve, 2500));
+      
+      // Wait for both to complete
       const [response] = await Promise.all([apiPromise, minLoadingTime]);
 
       if (!response.ok) {

@@ -22,10 +22,12 @@ export function AISummaryPanel({
   onClose 
 }: AISummaryPanelProps) {
   const { state, generateSummary, clearSummary } = useAI();
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  
+  const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastProgress, setLastProgress] = useState(0);
   const [loadingStep, setLoadingStep] = useState(0);
   const [loadingProgress, setLoadingProgress] = useState(0);
+  const [isGenerating, setIsGenerating] = useState(false); // Local loading state like QA panel
 
   // Auto-generate summary when progress changes significantly
   useEffect(() => {
@@ -35,9 +37,9 @@ export function AISummaryPanel({
     }
   }, [currentProgress, isVisible, autoRefresh, lastProgress]);
 
-  // Enhanced loading animation
+  // Enhanced loading animation with LOCAL state
   useEffect(() => {
-    if (state.isLoading) {
+    if (isGenerating) {
       setLoadingStep(0);
       setLoadingProgress(0);
       
@@ -65,13 +67,18 @@ export function AISummaryPanel({
       setLoadingStep(0);
       setLoadingProgress(0);
     }
-  }, [state.isLoading]);
+  }, [isGenerating]);
 
   const handleGenerateSummary = async (forceRefresh = false) => {
+    if (isGenerating) return; // Prevent multiple calls
+    
+    setIsGenerating(true);
     try {
       await generateSummary(bookId, currentProgress, bookTitle, { forceRefresh });
     } catch (error) {
       console.error('Failed to generate summary:', error);
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -133,7 +140,7 @@ export function AISummaryPanel({
           <div className="flex space-x-2">
             <Button
               onClick={handleRefresh}
-              disabled={state.isLoading}
+              disabled={isGenerating}
               size="sm"
               variant="outline"
               className="shadow-sm"
@@ -168,7 +175,7 @@ export function AISummaryPanel({
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {state.isLoading ? (
+        {isGenerating ? (
           <div className="p-6">
             {/* Enhanced Loading Header */}
             <div className="text-center mb-8">
