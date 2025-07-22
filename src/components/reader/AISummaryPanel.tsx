@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useAI } from '@/contexts/AIContext';
 import { Button } from '@/components/ui/Button';
@@ -29,13 +29,26 @@ export function AISummaryPanel({
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false); // Local loading state like QA panel
 
+  const handleGenerateSummary = useCallback(async (forceRefresh = false) => {
+    if (isGenerating) return; // Prevent multiple calls
+    
+    setIsGenerating(true);
+    try {
+      await generateSummary(bookId, currentProgress, bookTitle, { forceRefresh });
+    } catch (error) {
+      console.error('Failed to generate summary:', error);
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [isGenerating, generateSummary, bookId, currentProgress, bookTitle]);
+
   // Auto-generate summary when progress changes significantly
   useEffect(() => {
     if (isVisible && autoRefresh && Math.abs(currentProgress - lastProgress) >= 10) {
       handleGenerateSummary();
       setLastProgress(currentProgress);
     }
-  }, [currentProgress, isVisible, autoRefresh, lastProgress]);
+  }, [currentProgress, isVisible, autoRefresh, lastProgress, handleGenerateSummary]);
 
   // Enhanced loading animation with LOCAL state
   useEffect(() => {
@@ -69,18 +82,7 @@ export function AISummaryPanel({
     }
   }, [isGenerating]);
 
-  const handleGenerateSummary = async (forceRefresh = false) => {
-    if (isGenerating) return; // Prevent multiple calls
-    
-    setIsGenerating(true);
-    try {
-      await generateSummary(bookId, currentProgress, bookTitle, { forceRefresh });
-    } catch (error) {
-      console.error('Failed to generate summary:', error);
-    } finally {
-      setIsGenerating(false);
-    }
-  };
+
 
   const handleRefresh = () => {
     handleGenerateSummary(true);
@@ -302,7 +304,7 @@ export function AISummaryPanel({
             <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
                 <span>✨ AI-generated summary</span>
-                <span>Covers {state.summaryProgress.toFixed(1)}% of "{bookTitle}"</span>
+                <span>Covers {state.summaryProgress.toFixed(1)}% of &quot;{bookTitle}&quot;</span>
               </div>
             </div>
           </div>
