@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -8,6 +8,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
 export function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { signIn, signInWithGoogle } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,6 +16,23 @@ export function LoginForm() {
     email: '',
     password: '',
   });
+
+  // Check for error parameters from OAuth callback
+  useEffect(() => {
+    const errorParam = searchParams.get('error');
+    if (errorParam) {
+      switch (errorParam) {
+        case 'auth_callback_error':
+          setError('Authentication failed. Please try again.');
+          break;
+        case 'no_code_provided':
+          setError('Authentication was cancelled or failed.');
+          break;
+        default:
+          setError('An error occurred during authentication.');
+      }
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
