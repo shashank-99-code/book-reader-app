@@ -94,6 +94,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
   const updateProgressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isRestoringRef = useRef(false);
   const restoredFromContextRef = useRef(false);
+  const settingsRef = useRef(settings);
 
   // Tooltip state for slider hover
   const [seekTooltip, setSeekTooltip] = useState({ visible: false, text: '', x: 0 });
@@ -266,12 +267,21 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
 
   // Apply bionic reading to text
   const applyBionicReading = useCallback((enabled: boolean, intensity: string | number) => {
-    if (!viewerRef.current) return
+    console.log('⚡ applyBionicReading called:', { enabled, intensity });
+    
+    if (!viewerRef.current) {
+      console.warn('❌ applyBionicReading: No viewerRef');
+      return;
+    }
 
     const iframe = viewerRef.current.querySelector("iframe")
-    if (!iframe || !iframe.contentDocument) return
+    if (!iframe || !iframe.contentDocument) {
+      console.warn('❌ applyBionicReading: No iframe or contentDocument');
+      return;
+    }
 
-                const doc = iframe.contentDocument
+    console.log('📄 applyBionicReading: Found iframe and contentDocument');
+    const doc = iframe.contentDocument
     const textNodes: Text[] = []
 
     // Find all text nodes
@@ -285,7 +295,27 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
     while ((node = walk.nextNode() as Text)) {
       if (node.textContent && node.textContent.trim().length > 0) {
         textNodes.push(node)
-                }
+      }
+    }
+
+    console.log(`📝 Found ${textNodes.length} text nodes to process`);
+
+    if (!enabled) {
+      console.log('🧹 Bionic reading disabled, cleaning up existing formatting...');
+      // Clean up existing bionic formatting
+      const bionicSpans = doc.querySelectorAll('span[data-bionic-applied="true"]');
+      console.log(`🧹 Found ${bionicSpans.length} bionic spans to clean up`);
+      
+      bionicSpans.forEach((span) => {
+        if (span.parentNode && span.textContent) {
+          // Replace the span with plain text
+          const textNode = doc.createTextNode(span.textContent);
+          span.parentNode.replaceChild(textNode, span);
+        }
+      });
+      
+      console.log('✅ Bionic formatting cleanup complete');
+      return;
     }
 
     // Convert intensity to number if it's a string
@@ -296,7 +326,10 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
       : 50 
       : intensity
 
+    console.log(`⚡ Processing with intensity: ${intensityValue}%`);
+
     // Apply bionic reading
+    let processedCount = 0;
     textNodes.forEach((textNode) => {
       const text = textNode.textContent || ""
       if (text.trim().length === 0) return
@@ -318,15 +351,206 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
       span.innerHTML = bionicText
       span.dataset.bionicApplied = 'true';
       textNode.parentNode?.replaceChild(span, textNode)
+      processedCount++;
     })
+    
+    console.log(`✅ Bionic reading applied to ${processedCount} text nodes`);
+  }, [])
+
+  // Register themes with current settings
+  const registerThemes = useCallback((renditionToUpdate: Rendition, currentSettings: ReadingSettings) => {
+    if (!renditionToUpdate) return;
+
+    const themes = {
+      light: {
+        "html, body": {
+          "background": "#ffffff !important",
+          "background-color": "#ffffff !important",
+          "color": "#000000 !important", 
+          "line-height": `${currentSettings.lineHeight / 100} !important`,
+          "text-align": `${currentSettings.textAlign} !important` 
+        },
+        "*": {
+          "color": "#000000 !important"
+        },
+        "p, div, span, h1, h2, h3, h4, h5, h6, strong, em, i, b": {
+          "color": "#000000 !important", 
+          "text-align": `${currentSettings.textAlign} !important`,
+          "line-height": `${currentSettings.lineHeight / 100} !important` 
+        }
+      },
+      dark: {
+        "html, body": {
+          "background": "#000000 !important", 
+          "background-color": "#000000 !important", 
+          "color": "#ffffff !important", 
+          "line-height": `${currentSettings.lineHeight / 100} !important`,
+          "text-align": `${currentSettings.textAlign} !important` 
+        },
+        "*": {
+          "color": "#ffffff !important"
+        },
+        "p, div, span": {
+          "color": "#ffffff !important", 
+          "text-align": `${currentSettings.textAlign} !important`,
+          "line-height": `${currentSettings.lineHeight / 100} !important` 
+        },
+        "h1, h2, h3, h4, h5, h6, strong, em, i, b": {
+          "color": "#ffffff !important",
+          "font-weight": "bold !important"
+        }
+      },
+      sepia: {
+        "html, body": {
+          "background": "#f4f1ea !important", 
+          "background-color": "#f4f1ea !important", 
+          "color": "#5c4b37 !important", 
+          "line-height": `${currentSettings.lineHeight / 100} !important`,
+          "text-align": `${currentSettings.textAlign} !important` 
+        },
+        "*": {
+          "color": "#5c4b37 !important"
+        },
+        "p, div, span": {
+          "color": "#5c4b37 !important", 
+          "text-align": `${currentSettings.textAlign} !important`,
+          "line-height": `${currentSettings.lineHeight / 100} !important` 
+        },
+        "h1, h2, h3, h4, h5, h6, strong, em, i, b": {
+          "color": "#4a3f2a !important",
+          "font-weight": "bold !important"
+        }
+      },
+    };
+
+    renditionToUpdate.themes.register("light", themes.light);
+    renditionToUpdate.themes.register("dark", themes.dark);
+    renditionToUpdate.themes.register("sepia", themes.sepia);
+    
+    console.log('📋 Themes registered successfully');
   }, [])
 
   // Apply reading settings to rendition
   const applySettings = useCallback((renditionToUpdate: Rendition, currentSettings: ReadingSettings) => {
-    if (!renditionToUpdate) return;
+    if (!renditionToUpdate) {
+      console.warn('❌ applySettings: No rendition provided');
+      return;
+    }
+    console.log('🎨 applySettings called with theme:', currentSettings.theme, 'bionic:', currentSettings.bionicReading.enabled);
     try {
-      renditionToUpdate.themes.select(currentSettings.theme)
-      renditionToUpdate.themes.fontSize(`${currentSettings.fontSize}%`)
+      // Re-register themes with current settings to ensure they're up to date
+      console.log('📝 Re-registering themes...');
+      registerThemes(renditionToUpdate, currentSettings);
+      
+      console.log('🎨 Selecting theme:', currentSettings.theme);
+      
+      // Force clear and reselect theme
+      try {
+        // Try to clear any existing theme first
+        renditionToUpdate.themes.select('default');
+      } catch (e) {
+        console.log('📝 No default theme to clear, continuing...');
+      }
+      
+      // Apply the desired theme
+      renditionToUpdate.themes.select(currentSettings.theme);
+      renditionToUpdate.themes.fontSize(`${currentSettings.fontSize}%`);
+      
+      // Force theme application by triggering a re-render
+      setTimeout(() => {
+        try {
+          renditionToUpdate.themes.select(currentSettings.theme);
+          console.log('🔄 Theme re-applied after timeout');
+        } catch (e) {
+          console.warn('❌ Theme re-application failed:', e);
+        }
+      }, 10);
+      
+      // Verify theme was applied by checking iframe styles
+      setTimeout(() => {
+        const iframe = viewerRef.current?.querySelector("iframe");
+        if (iframe && iframe.contentDocument) {
+          const body = iframe.contentDocument.body;
+          const computedStyle = iframe.contentWindow?.getComputedStyle(body);
+          const bgColor = computedStyle?.backgroundColor;
+          const textColor = computedStyle?.color;
+          console.log('🔍 Theme verification - Background:', bgColor, 'Text:', textColor);
+          
+          // If verification shows wrong colors, try forcing styles directly
+          if (currentSettings.theme === 'light' && bgColor && (bgColor.includes('26, 26, 26') || bgColor.includes('0, 0, 0'))) {
+            console.log('🔧 Theme mismatch detected, force-applying light theme styles');
+            
+            // Apply styles to body
+            body.style.backgroundColor = '#ffffff !important';
+            body.style.color = '#000000 !important';
+            
+            // Apply styles to all elements
+            const allElements = body.querySelectorAll('*');
+            allElements.forEach((el: Element) => {
+              const htmlEl = el as HTMLElement;
+              if (htmlEl.style) {
+                htmlEl.style.backgroundColor = '';
+                htmlEl.style.color = '#000000';
+              }
+            });
+            
+            // Apply global styles
+            const style = iframe.contentDocument.createElement('style');
+            style.textContent = `
+              body, html { background-color: #ffffff !important; color: #000000 !important; }
+              p, div, span, h1, h2, h3, h4, h5, h6 { color: #000000 !important; }
+            `;
+            iframe.contentDocument.head.appendChild(style);
+            
+            console.log('🔧 Aggressive light theme styles applied');
+            
+            // Re-verify after aggressive styling
+            setTimeout(() => {
+              const verifyStyle = iframe.contentWindow?.getComputedStyle(body);
+              const newBgColor = verifyStyle?.backgroundColor;
+              const newTextColor = verifyStyle?.color;
+              console.log('🔍 Post-aggressive verification - Background:', newBgColor, 'Text:', newTextColor);
+            }, 50);
+            
+          } else if (currentSettings.theme === 'dark' && bgColor && (bgColor.includes('255, 255, 255') || !bgColor.includes('0, 0, 0'))) {
+            console.log('🔧 Theme mismatch detected, force-applying dark theme styles');
+            
+            // Apply styles to body
+            body.style.backgroundColor = '#000000 !important';
+            body.style.color = '#ffffff !important';
+            
+            // Apply styles to all elements
+            const allElements = body.querySelectorAll('*');
+            allElements.forEach((el: Element) => {
+              const htmlEl = el as HTMLElement;
+              if (htmlEl.style) {
+                htmlEl.style.backgroundColor = '';
+                htmlEl.style.color = '#ffffff';
+              }
+            });
+            
+            // Apply global styles
+            const style = iframe.contentDocument.createElement('style');
+            style.textContent = `
+              body, html { background-color: #000000 !important; color: #ffffff !important; }
+              p, div, span, h1, h2, h3, h4, h5, h6 { color: #ffffff !important; }
+            `;
+            iframe.contentDocument.head.appendChild(style);
+            
+            console.log('🔧 Aggressive dark theme styles applied');
+            
+            // Re-verify after aggressive styling
+            setTimeout(() => {
+              const verifyStyle = iframe.contentWindow?.getComputedStyle(body);
+              const newBgColor = verifyStyle?.backgroundColor;
+              const newTextColor = verifyStyle?.color;
+              console.log('🔍 Post-aggressive verification - Background:', newBgColor, 'Text:', newTextColor);
+            }, 50);
+          }
+        } else {
+          console.warn('❌ Could not verify theme - no iframe/contentDocument found');
+        }
+      }, 100);
 
       // Only apply font-family for safe generic families to avoid epub.js errors
       const safeFonts = ["serif", "sans-serif", "monospace"];
@@ -334,17 +558,12 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
         renditionToUpdate.themes.font(currentSettings.fontFamily);
       }
       
-      // Apply bionic reading if enabled
-      if (currentSettings.bionicReading.enabled) {
-        applyBionicReading(true, currentSettings.bionicReading.intensity)
-      }
-      
-      console.log(`Applied theme: ${currentSettings.theme}, Font: ${currentSettings.fontFamily}, Size: ${currentSettings.fontSize}%`)
+      console.log(`✅ Applied theme: ${currentSettings.theme}, Font: ${currentSettings.fontFamily}, Size: ${currentSettings.fontSize}%`)
       
     } catch (error) {
-      console.error("Error applying settings:", error)
+      console.error("❌ Error applying settings:", error)
     }
-  }, [applyBionicReading])
+  }, [registerThemes])
 
   // Setup rendition - CLEANED UP
   useEffect(() => {
@@ -431,93 +650,7 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
 
       setRendition(newRendition);
 
-      // Register themes
-      const themes = {
-        light: {
-          body: {
-            background: "#ffffff !important",
-            color: "#000000 !important", 
-            "line-height": `${settings.lineHeight / 100} !important`,
-            "text-align": `${settings.textAlign} !important` 
-          },
-          p: {
-            color: "#000000 !important", 
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important` 
-          },
-          div: {
-            color: "#000000 !important", 
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important` 
-          },
-          span: { color: "#000000 !important" }, 
-          h1: { color: "#000000 !important" }, 
-          h2: { color: "#000000 !important" }, 
-          h3: { color: "#000000 !important" }, 
-          h4: { color: "#000000 !important" }, 
-          h5: { color: "#000000 !important" }, 
-          h6: { color: "#000000 !important" }, 
-          strong: { "font-weight": "bold !important", color: "#000000 !important"} 
-        },
-        dark: {
-          body: {
-            background: "#1a1a1a !important", 
-            color: "#e0e0e0 !important", 
-            "line-height": `${settings.lineHeight / 100} !important`,
-            "text-align": `${settings.textAlign} !important` 
-          },
-          p: {
-            color: "#e0e0e0 !important", 
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important` 
-          },
-          div: {
-            color: "#e0e0e0 !important", 
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important` 
-          },
-          span: { color: "#e0e0e0 !important" }, 
-          h1: { color: "#ffffff !important" }, 
-          h2: { color: "#ffffff !important" }, 
-          h3: { color: "#ffffff !important" }, 
-          h4: { color: "#ffffff !important" }, 
-          h5: { color: "#ffffff !important" }, 
-          h6: { color: "#ffffff !important" }, 
-          strong: { "font-weight": "bold !important", color: "#ffffff !important"} 
-        },
-        sepia: {
-          body: {
-            background: "#f4f1ea !important", 
-            color: "#5c4b37 !important", 
-            "line-height": `${settings.lineHeight / 100} !important`,
-            "text-align": `${settings.textAlign} !important` 
-          },
-          p: {
-            color: "#5c4b37 !important", 
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important` 
-          },
-          div: {
-            color: "#5c4b37 !important", 
-            "text-align": `${settings.textAlign} !important`,
-            "line-height": `${settings.lineHeight / 100} !important` 
-          },
-          span: { color: "#5c4b37 !important" }, 
-          h1: { color: "#4a3f2a !important" }, 
-          h2: { color: "#4a3f2a !important" }, 
-          h3: { color: "#4a3f2a !important" }, 
-          h4: { color: "#4a3f2a !important" }, 
-          h5: { color: "#4a3f2a !important" }, 
-          h6: { color: "#4a3f2a !important" }, 
-          strong: { "font-weight": "bold !important", color: "#4a3f2a !important"} 
-        },
-      };
-
-      newRendition.themes.register("light", themes.light);
-      newRendition.themes.register("dark", themes.dark);
-      newRendition.themes.register("sepia", themes.sepia);
-
-      // Apply initial settings
+      // Apply initial settings (this will register themes and apply them)
       applySettings(newRendition, settings);
 
       // Restore position if available
@@ -569,7 +702,42 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
       // Register location change handler
       newRendition.on('locationChanged', handleLocationChanged);
 
-      // Clean up handler on destroy
+      // Register 'rendered' event to apply settings to newly loaded content
+      const handleRendered = () => {
+        console.log('📄 Rendered event fired, isRestoring:', isRestoringRef.current);
+        if (!isRestoringRef.current) {
+          console.log('🎨 Content rendered, applying settings...');
+          setTimeout(() => {
+            try {
+              // Get current settings (not stale closure)
+              const currentSettings = settingsRef.current;
+              console.log('🎨 Re-applying theme after render:', currentSettings.theme, 'bionic:', currentSettings.bionicReading.enabled);
+              
+              // Re-register themes with current settings and apply
+              registerThemes(newRendition, currentSettings);
+              newRendition.themes.select(currentSettings.theme);
+              
+              // Apply bionic reading if enabled
+              if (currentSettings.bionicReading.enabled) {
+                console.log('⚡ Applying bionic reading after render...');
+                applyBionicReading(true, currentSettings.bionicReading.intensity);
+              } else {
+                console.log('❌ Bionic reading disabled, skipping after render');
+              }
+              
+              console.log('✅ Settings reapplied after render');
+            } catch (error) {
+              console.error('❌ Error reapplying settings after render:', error);
+            }
+          }, 100);
+        } else {
+          console.log('🔄 Skipping settings reapplication - currently restoring');
+        }
+      };
+      
+      newRendition.on('rendered', handleRendered);
+
+      // Clean up handlers on destroy
       newRendition.on('destroy', () => {
         newRendition.off('locationChanged', handleLocationChanged);
       });
@@ -609,9 +777,33 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
 
   // Apply settings to existing rendition when settings (except pageLayout) change
   useEffect(() => {
-    if (!rendition) return;
+    console.log('🔄 Settings changed effect triggered:', {
+      theme: settings.theme,
+      bionicEnabled: settings.bionicReading.enabled,
+      hasRendition: !!rendition
+    });
+    
+    // Update settings ref for rendered event handler
+    settingsRef.current = settings;
+    
+    if (!rendition) {
+      console.warn('❌ No rendition available for settings change');
+      return;
+    }
+    
+    console.log('🎨 Applying settings due to change...');
     applySettings(rendition, settings);
-  }, [rendition, settings.theme, settings.fontSize, settings.fontFamily, settings.lineHeight, settings.textAlign, settings.bionicReading, applySettings]);
+    
+    // Apply bionic reading separately with a delay
+    setTimeout(() => {
+      console.log('⚡ Applying bionic reading after delay...');
+      if (settings.bionicReading.enabled) {
+        applyBionicReading(true, settings.bionicReading.intensity);
+      } else {
+        applyBionicReading(false, settings.bionicReading.intensity);
+      }
+    }, 100);
+  }, [rendition, settings.theme, settings.fontSize, settings.fontFamily, settings.lineHeight, settings.textAlign, settings.bionicReading, applySettings, applyBionicReading]);
 
   // Navigation functions - IMPROVED
   const nextPage = useCallback(async () => {
@@ -621,10 +813,11 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
     }
 
     try {
+      console.log('🚀 Navigating to next page...');
       await rendition.next();
-      console.log("Next page -> success");
+      console.log("✅ Next page -> success");
     } catch (err) {
-      console.error("Error going to next page:", err);
+      console.error("❌ Error going to next page:", err);
     }
   }, [rendition]);
 
@@ -1184,9 +1377,9 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
   return (
     <div
       className={`relative w-full h-screen overflow-hidden ${
-        settings.theme === "dark" ? "bg-gray-900" : settings.theme === "sepia" ? "bg-amber-50" : "bg-white"
+        settings.theme === "dark" ? "bg-black" : settings.theme === "sepia" ? "bg-amber-50" : "bg-white"
       }`}
-      style={{ backgroundColor: settings.theme === "dark" ? "#111827" : settings.theme === "sepia" ? "#fef7ed" : "#ffffff" }}
+      style={{ backgroundColor: settings.theme === "dark" ? "#000000" : settings.theme === "sepia" ? "#fef7ed" : "#ffffff" }}
     >
       {/* Loading State */}
       {isLoading && (
@@ -1453,12 +1646,12 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
 
       {/* Settings Dropdown */}
       {showSettings && (
-        <div className={`settings-dropdown absolute top-20 right-6 w-80 rounded-2xl shadow-2xl border z-50 animate-in slide-in-from-top-2 duration-200 ${
+        <div className={`settings-dropdown absolute top-20 right-6 w-72 max-h-[calc(100vh-140px)] rounded-2xl shadow-2xl border z-50 animate-in slide-in-from-top-2 duration-200 overflow-hidden ${
           settings.theme === "dark" 
             ? "bg-gray-800 border-gray-700" 
             : "bg-white border-gray-100"
         }`}>
-          <div className={`p-6 border-b flex items-center justify-between ${
+          <div className={`p-4 border-b flex items-center justify-between ${
             settings.theme === "dark" ? "border-gray-700" : "border-gray-100"
           }`}>
             <h3 className={`text-lg font-medium ${settings.theme === "dark" ? "text-white" : "text-gray-900"}`}>Display options</h3>
@@ -1473,15 +1666,19 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
               </svg>
             </button>
           </div>
-          <div className="p-6 space-y-8">
+          <div className="p-4 space-y-4 overflow-y-auto max-h-[calc(100vh-220px)]">
             {/* Dark Theme Toggle */}
             <div className="flex items-center justify-between">
               <span className={`text-base font-medium ${settings.theme === "dark" ? "text-white" : "text-gray-900"}`}>Dark theme</span>
               <button
-                onClick={() => setSettings((prev) => ({ 
-                  ...prev, 
-                  theme: prev.theme === "dark" ? "light" : "dark" 
-                }))}
+                onClick={() => {
+                  const newTheme = settings.theme === "dark" ? "light" : "dark";
+                  console.log('🔄 User toggled theme from', settings.theme, 'to', newTheme);
+                  setSettings((prev) => ({ 
+                    ...prev, 
+                    theme: newTheme
+                  }));
+                }}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                   settings.theme === "dark" ? "bg-gray-900" : "bg-gray-200"
                     }`}
@@ -1655,13 +1852,17 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
                   Fast Reading
                 </label>
                 <button
-                  onClick={() => setSettings((prev) => ({ 
-                    ...prev, 
-                    bionicReading: { 
-                      ...prev.bionicReading, 
-                      enabled: !prev.bionicReading.enabled 
-                    } 
-                  }))}
+                  onClick={() => {
+                    const newEnabled = !settings.bionicReading.enabled;
+                    console.log('⚡ User toggled bionic reading from', settings.bionicReading.enabled, 'to', newEnabled);
+                    setSettings((prev) => ({ 
+                      ...prev, 
+                      bionicReading: { 
+                        ...prev.bionicReading, 
+                        enabled: newEnabled
+                      } 
+                    }));
+                  }}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                     settings.bionicReading.enabled ? "bg-blue-600" : "bg-gray-200"
                   }`}

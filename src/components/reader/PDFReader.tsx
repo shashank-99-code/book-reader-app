@@ -952,17 +952,17 @@ export function PDFReader({
 
       {/* Settings Dropdown */}
       {showSettings && (
-        <div className={`absolute top-20 right-6 w-96 rounded-2xl shadow-2xl border z-50 animate-in slide-in-from-top-2 duration-200 ${
+        <div className={`absolute top-20 right-6 w-80 max-h-[calc(100vh-140px)] rounded-2xl shadow-2xl border z-50 animate-in slide-in-from-top-2 duration-200 overflow-hidden ${
           settings.theme === "dark" 
             ? "bg-gray-800 border-gray-700" 
             : settings.theme === "sepia"
             ? "bg-amber-50 border-amber-200"
             : "bg-white border-gray-100"
         }`}>
-          <div className={`p-6 border-b flex items-center justify-between ${
+          <div className={`p-4 border-b flex items-center justify-between ${
             settings.theme === "dark" ? "border-gray-700" : settings.theme === "sepia" ? "border-amber-200" : "border-gray-100"
           }`}>
-            <h3 className={`text-xl font-semibold ${settings.theme === "dark" ? "text-white" : settings.theme === "sepia" ? "text-amber-900" : "text-gray-900"}`}>
+            <h3 className={`text-lg font-semibold ${settings.theme === "dark" ? "text-white" : settings.theme === "sepia" ? "text-amber-900" : "text-gray-900"}`}>
               Display Settings
             </h3>
             <button
@@ -976,7 +976,7 @@ export function PDFReader({
               </svg>
             </button>
           </div>
-          <div className="p-6 space-y-8">
+          <div className="p-4 space-y-5 overflow-y-auto max-h-[calc(100vh-220px)]">
             {/* Theme Selection */}
             <div>
               <label className={`block text-lg font-semibold mb-4 ${settings.theme === "dark" ? "text-white" : settings.theme === "sepia" ? "text-amber-900" : "text-gray-900"}`}>
