@@ -6,7 +6,7 @@ import BookViewer from '@/components/book/BookViewer';
 import { getBookById, updateLastRead } from '@/lib/services/bookService';
 import { getPublicUrl } from '@/lib/services/fileService';
 import { useRouter } from 'next/navigation';
-import { LiteraryLoadingSpinner } from '@/components/ui/LiteraryLoadingSpinner';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useReader } from '@/contexts/ReaderContext';
 import ReadingProgress from '@/components/reader/ReadingProgress';
 import { AISummaryPanel } from '@/components/reader/AISummaryPanel';
@@ -83,10 +83,9 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
 
   if (isLoading || contextLoading) {
     return (
-      <LiteraryLoadingSpinner 
-        bookTitle={currentBook?.title || "your book"}
-        size="lg"
-      />
+      <div className="flex items-center justify-center min-h-screen">
+        <LoadingSpinner className="w-8 h-8" />
+      </div>
     );
   }
 
