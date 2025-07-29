@@ -187,7 +187,7 @@ export function AISummaryPanel({
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="w-6 h-6 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full opacity-20 animate-pulse"></div>
                   </div>
-                </div>
+              </div>
                 <div className="ml-4">
                   <span className="text-lg font-semibold text-gray-800 dark:text-gray-200">Generating AI Summary</span>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
@@ -209,7 +209,7 @@ export function AISummaryPanel({
                   style={{ width: `${loadingProgress}%` }}
                 >
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent opacity-30 animate-pulse"></div>
-                </div>
+              </div>
               </div>
             </div>
 
@@ -253,25 +253,25 @@ export function AISummaryPanel({
           </div>
         ) : state.error ? (
           <div className="p-6">
-            <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+          <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
               <div className="flex items-center mb-3">
-                <svg className="w-5 h-5 text-red-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+              <svg className="w-5 h-5 text-red-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
                 <span className="font-semibold text-red-800 dark:text-red-200">Error Generating Summary</span>
-              </div>
+            </div>
               <p className="text-sm text-red-700 dark:text-red-300 mb-4">{state.error}</p>
-              <Button
-                onClick={() => handleGenerateSummary(true)}
-                size="sm"
-                variant="outline"
+            <Button
+              onClick={() => handleGenerateSummary(true)}
+              size="sm"
+              variant="outline"
                 className="border-red-300 text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-300 dark:hover:bg-red-900/20"
-              >
+            >
                 <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-                Try Again
-              </Button>
+              Try Again
+            </Button>
             </div>
           </div>
         ) : state.currentSummary ? (
@@ -294,7 +294,7 @@ export function AISummaryPanel({
                         blockquote: ({children}) => <blockquote className="border-l-4 border-blue-500 pl-4 py-2 mb-4 bg-blue-50 dark:bg-blue-900/20 text-gray-700 dark:text-gray-300 italic">{children}</blockquote>,
                       }}
                     >
-                      {state.currentSummary}
+                {state.currentSummary}
                     </ReactMarkdown>
                   </div>
                 </div>
@@ -313,8 +313,8 @@ export function AISummaryPanel({
             <div className="relative mb-6">
               <div className="p-4 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-full w-20 h-20 mx-auto flex items-center justify-center shadow-lg">
                 <svg className="w-10 h-10 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
               </div>
               <div className="absolute -top-1 -right-1 w-6 h-6 bg-yellow-400 rounded-full flex items-center justify-center">
                 <span className="text-xs">✨</span>

@@ -8,8 +8,8 @@ export function BookGrid({ books, onBookClick, onUploadClick }: { books: Book[];
     return (
       <div className="text-center py-16">
         <div className="max-w-md mx-auto">
-          <div className="w-24 h-24 bg-gradient-to-br from-pink-100 to-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <svg className="w-12 h-12 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-20 h-20 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-full flex items-center justify-center mx-auto mb-6 border border-blue-100">
+            <svg className="w-10 h-10 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -18,11 +18,11 @@ export function BookGrid({ books, onBookClick, onUploadClick }: { books: Book[];
               />
             </svg>
           </div>
-          <h3 className="text-xl font-semibold text-slate-900 mb-2">No books yet</h3>
-          <p className="text-slate-600 mb-6">Start building your digital library by uploading your first book.</p>
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">No books yet</h3>
+          <p className="text-gray-600 mb-6">Start building your digital library by uploading your first book.</p>
           <button 
             onClick={onUploadClick}
-            className="bg-gradient-to-r from-pink-500 to-pink-400 text-white px-6 py-3 rounded-xl font-medium hover:from-pink-600 hover:to-pink-500 transition-all duration-200 shadow-sm hover:shadow-md"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors duration-200 shadow-sm hover:shadow-md"
           >
             Upload Your First Book
           </button>
@@ -32,7 +32,7 @@ export function BookGrid({ books, onBookClick, onUploadClick }: { books: Book[];
   }
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-4 lg:gap-6">
       {books.map((book) => (
         <BookCard 
           key={book.id} 

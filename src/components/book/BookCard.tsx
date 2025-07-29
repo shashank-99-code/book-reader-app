@@ -16,23 +16,23 @@ export function BookCard({ book, onClick }: { book: Book; onClick?: () => void }
 
   return (
     <div
-      className="bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer group hover:scale-[1.02] border border-gray-100 hover:border-pink-200"
+      className="group cursor-pointer transition-all duration-200 hover:scale-[1.02]"
       onClick={handleCardClick}
       tabIndex={0}
       role="button"
-      style={{ minHeight: "22rem" }}
     >
-      <div className="p-4 flex flex-col h-full">
-        <div className="w-full aspect-[2/3] bg-gray-50 rounded-lg mb-4 flex items-center justify-center overflow-hidden group-hover:ring-2 group-hover:ring-pink-200 transition-all">
+      {/* Book Cover */}
+      <div className="relative mb-3">
+        <div className="w-full aspect-[2/3] bg-white rounded-md overflow-hidden shadow-sm border border-gray-200 group-hover:shadow-lg transition-all duration-200">
           {book.cover_url ? (
             <img
               src={book.cover_url || "/placeholder.svg"}
               alt={book.title}
-              className="w-full h-full object-cover rounded-lg"
+              className="w-full h-full object-cover"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-gray-400 bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg">
-              <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-full h-full flex items-center justify-center text-gray-400 bg-gradient-to-br from-gray-50 to-gray-100">
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -43,28 +43,42 @@ export function BookCard({ book, onClick }: { book: Book; onClick?: () => void }
             </div>
           )}
         </div>
-
-        <div className="flex-1 flex flex-col">
-          <h3 className="font-semibold text-slate-900 mb-1 line-clamp-2 text-base leading-tight group-hover:text-pink-600 transition-colors">
-            {book.title}
-          </h3>
-          {book.author && <p className="text-sm text-slate-600 mb-3 line-clamp-1">{book.author}</p>}
-
-          {/* Progress bar if book has been started */}
-          {book.progress_percentage && book.progress_percentage > 0 && (
-            <div className="mt-auto">
-              <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                <span>{Math.round(book.progress_percentage)}% complete</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-1">
-                <div
-                  className="bg-gradient-to-r from-pink-500 to-pink-400 h-1 rounded-full transition-all duration-300"
-                  style={{ width: `${book.progress_percentage}%` }}
-                />
-              </div>
+        
+        {/* Progress indicator overlay */}
+        {book.progress_percentage && book.progress_percentage > 0 && (
+          <div className="absolute top-2 right-2">
+            <div className="bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded-full font-medium">
+              {Math.round(book.progress_percentage)}%
             </div>
-          )}
-        </div>
+          </div>
+        )}
+      </div>
+
+      {/* Book Info */}
+      <div className="space-y-1">
+        {/* Title */}
+        <h3 className="text-sm font-normal text-gray-900 line-clamp-2 leading-tight group-hover:text-blue-600 transition-colors duration-200">
+          {book.title}
+        </h3>
+        
+        {/* Author */}
+        {book.author && (
+          <p className="text-xs text-gray-600 line-clamp-1 font-normal">
+            {book.author}
+          </p>
+        )}
+
+        {/* Progress bar */}
+        {book.progress_percentage && book.progress_percentage > 0 && (
+          <div className="pt-2">
+            <div className="w-full bg-gray-200 rounded-full h-1">
+              <div
+                className="bg-blue-500 h-1 rounded-full transition-all duration-300"
+                style={{ width: `${book.progress_percentage}%` }}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
