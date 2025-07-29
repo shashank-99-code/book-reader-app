@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { useReader } from '@/contexts/ReaderContext';
 import { getBookById } from '@/lib/services/bookService';
-import { LiteraryLoadingSpinner } from "@/components/ui/LiteraryLoadingSpinner";
+import { BookLoadingScreen } from '@/components/ui/BookLoadingScreen';
 
 // Set up PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
@@ -475,11 +475,9 @@ export function PDFReader({
     >
       {/* Loading State */}
       {loading && (
-        <LiteraryLoadingSpinner 
-          bookTitle={bookTitle}
-          size="md"
-          className="absolute inset-0 z-50"
-        />
+        <div className="absolute inset-0 z-50">
+          <BookLoadingScreen bookTitle={bookTitle} />
+        </div>
       )}
 
       {/* Top Bar - Google Play Books Style */}
