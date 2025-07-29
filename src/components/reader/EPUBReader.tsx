@@ -8,7 +8,7 @@ import type React from "react"
 import { useEffect, useRef, useState, useCallback } from "react"
 import ePub, { type Book, type Rendition, type NavItem } from "epubjs"
 import { useReader } from '@/contexts/ReaderContext';
-import { BookLoadingScreen } from '@/components/ui/BookLoadingScreen';
+import { LiteraryLoadingSpinner } from "@/components/ui/LiteraryLoadingSpinner"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 interface SearchResult extends Record<string, any> {
@@ -1384,9 +1384,11 @@ const EPUBReader: React.FC<EPUBReaderProps> = ({
     >
       {/* Loading State */}
       {isLoading && (
-        <div className="absolute inset-0 z-50">
-          <BookLoadingScreen bookTitle={bookTitle} />
-        </div>
+        <LiteraryLoadingSpinner 
+          bookTitle={bookTitle}
+          size="md"
+          className="absolute inset-0 z-50"
+        />
       )}
 
 
