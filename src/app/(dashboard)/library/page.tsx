@@ -8,6 +8,7 @@ import { UploadModal } from '@/components/book/UploadModal';
 export default function LibraryPage() {
   const { books, loading, fetchBooks } = useBookContext();
   const [modalOpen, setModalOpen] = useState(false);
+  const [sortBy, setSortBy] = useState<'recent' | 'title' | 'author'>('recent');
 
   useEffect(() => {
     fetchBooks();
@@ -40,12 +41,30 @@ export default function LibraryPage() {
     setModalOpen(false);
   };
 
+  // Sort books based on selected option
+  const sortedBooks = [...books].sort((a, b) => {
+    switch (sortBy) {
+      case 'recent':
+        const aDate = a.last_read ? new Date(a.last_read).getTime() : 0;
+        const bDate = b.last_read ? new Date(b.last_read).getTime() : 0;
+        return bDate - aDate;
+      case 'title':
+        return a.title.localeCompare(b.title);
+      case 'author':
+        return (a.author || '').localeCompare(b.author || '');
+      default:
+        return 0;
+    }
+  });
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <div className="text-gray-600">Loading your library...</div>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading your library...</p>
+          </div>
         </div>
       </div>
     );
@@ -53,27 +72,50 @@ export default function LibraryPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Page Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Your Library</h1>
-          <p className="text-gray-600 mt-1">
-            {books.length} {books.length === 1 ? 'book' : 'books'} in your collection
-          </p>
+      {/* Header */}
+      <div className="mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Your Library</h1>
+            <p className="mt-2 text-gray-600">
+              {books.length} {books.length === 1 ? 'book' : 'books'} in your collection
+            </p>
+          </div>
+          <div className="mt-4 sm:mt-0">
+            <button
+              onClick={() => setModalOpen(true)}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+            >
+              Upload Book
+            </button>
+          </div>
         </div>
-        <button
-          onClick={() => setModalOpen(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors shadow-sm hover:shadow-md flex items-center space-x-2"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          <span>Add Books</span>
-        </button>
       </div>
 
+      {/* Sort and Filter Controls */}
+      {books.length > 0 && (
+        <div className="mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center space-x-4">
+              <span className="text-sm font-medium text-gray-700">Sort by:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as 'recent' | 'title' | 'author')}
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="recent">Recently Read</option>
+                <option value="title">Title</option>
+                <option value="author">Author</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Books Grid */}
-      <BookGrid books={books} onUploadClick={() => setModalOpen(true)} />
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <BookGrid books={sortedBooks} onUploadClick={() => setModalOpen(true)} />
+      </div>
 
       <UploadModal open={modalOpen} onClose={() => setModalOpen(false)} onUpload={handleUpload} />
     </div>
