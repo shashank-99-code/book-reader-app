@@ -293,6 +293,19 @@ export function PDFReader({
   }, [currentPage, settings.pageLayout]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Don't hijack keys while the user is typing in an input/textarea/contenteditable element
+    const activeElement = document.activeElement as HTMLElement | null;
+    const isInputFocused = activeElement && (
+      activeElement.tagName.toLowerCase() === 'input' ||
+      activeElement.tagName.toLowerCase() === 'textarea' ||
+      activeElement.getAttribute('contenteditable') === 'true' ||
+      activeElement.closest('[contenteditable="true"]')
+    );
+
+    if (isInputFocused) {
+      return;
+    }
+
     if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
       e.preventDefault();
       prevPage();
